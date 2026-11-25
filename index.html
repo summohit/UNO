@@ -601,6 +601,24 @@
         </div>
       </div>
 
+      <!-- Live Match Feed / Last 3 Plays Strip (Feature #4) -->
+      <aside class="match-feed-box" id="match-feed-box" aria-label="Recent Match Plays">
+        <div class="match-feed-header">
+          <span class="feed-live-dot" aria-hidden="true"></span>
+          <span class="feed-title">LAST PLAYS</span>
+          <button
+            type="button"
+            class="feed-toggle-btn"
+            id="feed-toggle-btn"
+            aria-label="Toggle match feed"
+            aria-expanded="true"
+          >
+            ▾
+          </button>
+        </div>
+        <ul class="match-feed-list" id="match-feed-list" aria-live="polite"></ul>
+      </aside>
+
       <!-- Floating On-Page 3D Camera View Switcher (Moved out of Hamburger Menu) -->
       <button
         type="button"
@@ -634,6 +652,19 @@
               <path d="M19 6.5v12.5a2 2 0 0 1-2 2H9" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" />
             </svg>
             <span id="draw-btn-label">Draw (<strong id="draw-pile-count">80</strong>)</span>
+          </button>
+
+          <button
+            type="button"
+            class="sort-btn"
+            id="sort-hand-btn"
+            aria-label="Sort your 3D cards by color and number"
+            title="Sort Hand by Color &amp; Value"
+          >
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M3 6h18v2.2H3V6Zm3 5h12v2.2H6V11Zm4 5h4v2.2h-4V16Z" />
+            </svg>
+            <span>Sort</span>
           </button>
 
           <div class="seat-badge seat-human" id="seat-0">
@@ -1145,21 +1176,61 @@
       </div>
     </dialog>
 
-    <!-- Modal 6: Victory / Match Summary Dialog -->
+    <!-- Modal 6: Victory Podium & Match Stats Breakdown (Feature #6) -->
     <dialog
       id="victory-dialog"
       closedby="any"
+      class="victory-modal"
       aria-labelledby="victory-dialog-title"
     >
-      <h1 id="victory-dialog-title" class="dialog-title">Match Complete!</h1>
-      <p class="victory-subtitle" id="victory-subtitle">You cleared your hand!</p>
+      <div class="victory-header">
+        <span class="victory-trophy" aria-hidden="true">🏆</span>
+        <h1 id="victory-dialog-title" class="dialog-title">Match Complete!</h1>
+        <p class="victory-subtitle" id="victory-subtitle">You cleared your hand!</p>
+      </div>
+
       <div class="victory-score-box">
         <span class="score-caption">MATCH REWARDS</span>
         <strong class="score-number" id="victory-score">+145 PTS • +300 🪙</strong>
+        <div class="xp-progress-wrap">
+          <div class="xp-progress-meta">
+            <span id="victory-level-label">Level 1</span>
+            <span id="victory-xp-label">0 / 250 XP</span>
+          </div>
+          <div class="xp-bar-track" aria-hidden="true">
+            <div class="xp-bar-fill" id="victory-xp-fill"></div>
+          </div>
+        </div>
       </div>
+
+      <div class="victory-podium-section">
+        <h2 class="podium-heading">Final Standings</h2>
+        <ol class="victory-podium-list" id="victory-podium-list"></ol>
+      </div>
+
+      <div class="victory-stats-grid" id="victory-stats-grid">
+        <div class="stat-tile">
+          <span class="stat-tile-label">Cards Played</span>
+          <strong class="stat-tile-val" id="stat-cards-played">0</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Action Cards</span>
+          <strong class="stat-tile-val" id="stat-action-cards">0</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Max +Stack</span>
+          <strong class="stat-tile-val" id="stat-biggest-stack">+0</strong>
+        </div>
+        <div class="stat-tile">
+          <span class="stat-tile-label">Total Draws</span>
+          <strong class="stat-tile-val" id="stat-total-draws">0</strong>
+        </div>
+      </div>
+
       <form method="dialog" class="dialog-footer stacked">
-        <button type="submit" value="rematch" class="primary-modal-btn" autofocus>
-          Play Another 3D Match
+        <button type="submit" value="rematch" class="primary-modal-btn modal-cta-btn" autofocus>
+          <span>Play Another 3D Match</span>
+          <span class="cta-arrow" aria-hidden="true">→</span>
         </button>
         <button type="submit" value="home" class="secondary-modal-btn">
           Back to Main Menu

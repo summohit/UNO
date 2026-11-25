@@ -99,6 +99,48 @@ export class Uno3DGame {
     this.players = this.emptyRoster();
     this.deckPos = new THREE.Vector3(-0.98, 0.04, -0.15);
     this.discardPos = new THREE.Vector3(0.55, 0.04, -0.15);
+    this.matchStats = {
+      cardsPlayed: 0,
+      actionCardsPlayed: 0,
+      biggestStack: 0,
+      drawsTotal: 0,
+    };
+  }
+
+  resetMatchStats() {
+    this.matchStats = {
+      cardsPlayed: 0,
+      actionCardsPlayed: 0,
+      biggestStack: 0,
+      drawsTotal: 0,
+    };
+    this.ui.clearMatchFeed?.();
+  }
+
+  sortLocalHand() {
+    if (this.waitingForAdminStart || this.gameOver) return;
+    const hand = this.hands[this.localSeat];
+    if (!hand || hand.length < 2) return;
+
+    // Stays on for the rest of the match: every update re-sorts the hand.
+    this.keepHandSorted = true;
+    this.sortHandEntries(hand);
+    sound.playCardSwoosh();
+    this.layoutPlayerHand(this.localSeat, 0);
+  }
+
+  sortHandEntries(hand) {
+    const colorOrder = { red: 0, yellow: 1, green: 2, blue: 3, wild: 4 };
+    const valueOrder = {
+      '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+      '6': 6, '7': 7, '8': 8, '9': 9,
+      skip: 10, reverse: 11, draw2: 12, wild: 13, wild4: 14,
+    };
+    hand.sort((a, b) => {
+      const cDiff = (colorOrder[a.color] ?? 9) - (colorOrder[b.color] ?? 9);
+      if (cDiff !== 0) return cDiff;
+      return (valueOrder[a.value] ?? 99) - (valueOrder[b.value] ?? 99);
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -274,6 +316,7 @@ export class Uno3DGame {
     this.view = null;
     this.pendingWildCard = null;
     this.awaitingServer = false;
+    this.keepHandSorted = false;
     this.ui.hideUnoShoutButton();
     this.clearBoardMeshes();
     this.ui.showBanner('Dealing cards...', 'neutral');
@@ -403,6 +446,8 @@ export class Uno3DGame {
         return { key, mesh };
       });
     });
+
+    if (this.keepHandSorted) this.sortHandEntries(this.hands[this.localSeat]);
 
     // Discard pile (most recent cards only)
     const oldRoles = new Map([...this.meshes].map(([k, m]) => [k, m.userData.role]));
@@ -593,9 +638,28 @@ export class Uno3DGame {
 
   playEventEffects(events) {
     const color = this.view.activeColor;
+    const pushFeed = (text, colorKey = color) => {
+      this.ui.pushMatchFeed?.(text, colorKey);
+    };
+    const labelOfCard = (c, activeCol) => {
+      if (!c) return 'a card';
+      if (c.value === 'wild') return `Wild → ${COLOR_PALETTE[activeCol]?.label || activeCol}`;
+      if (c.value === 'wild4') return `Wild +4 → ${COLOR_PALETTE[activeCol]?.label || activeCol}`;
+      const colName = COLOR_PALETTE[c.color]?.label || c.color;
+      const valName =
+        c.value === 'draw2' ? '+2' : c.value === 'skip' ? '⊘ Skip' : c.value === 'reverse' ? '⇄ Reverse' : c.value;
+      return `${colName} ${valName}`;
+    };
+
     for (const e of events) {
       switch (e.type) {
         case 'play': {
+          this.matchStats.cardsPlayed += 1;
+          if (e.card.color === 'wild' || ['skip', 'reverse', 'draw2'].includes(e.card.value)) {
+            this.matchStats.actionCardsPlayed += 1;
+          }
+          const who = e.seat === this.localSeat ? 'You' : this.nameOf(e.seat);
+          pushFeed(`${who} played ${labelOfCard(e.card, e.color)}`, e.card.color === 'wild' ? e.color : e.card.color);
           this.ui.showCardPlayedBanner?.(this.nameOf(e.seat), e.card, e.color, e.seat === this.localSeat);
           if (e.card.color === 'wild') {
             sound.playWildChord();
@@ -608,28 +672,36 @@ export class Uno3DGame {
           break;
         }
         case 'jump_in':
+          pushFeed(`⚡ ${this.nameOf(e.seat)} jumped in!`, color);
           this.fx(e.seat === this.localSeat ? '⚡ JUMP-IN!' : `⚡ ${this.nameOf(e.seat)} JUMPED IN!`, 1.1, 0.6);
           break;
         case 'reverse':
+          pushFeed('⇄ Arena direction reversed!', color);
           this.fx('⇄ REVERSE!', 1.15, 0.75);
           break;
         case 'skip':
           this.arena.animateBotReaction(this.getVisualSlot(e.seat), 'hit');
           this.reaction(e.seat, '💔');
+          pushFeed(`⊘ ${this.nameOf(e.seat)} was skipped`, color);
           this.fx(`⊘ ${this.nameOf(e.seat)} SKIPPED!`, 1.1, 0.8);
           break;
         case 'stack':
+          this.matchStats.biggestStack = Math.max(this.matchStats.biggestStack, e.total || 0);
+          pushFeed(`🔥 Stack climbed to +${e.total}!`, color);
           sound.playPenaltyBoom();
           this.fx(`STACK AT +${e.total}!`, 1.4, 1.1);
           break;
         case 'draw':
+          this.matchStats.drawsTotal += e.count || 1;
           if (e.reason === 'penalty' || e.reason === 'stack') {
             sound.playPenaltyBoom();
             this.arena.animateBotReaction(this.getVisualSlot(e.seat), 'hit');
             this.reaction(e.seat, '😱');
+            pushFeed(`${this.nameOf(e.seat)} drew +${e.count} penalty`, color);
             this.fx(`${this.nameOf(e.seat).toUpperCase()} DRAWS +${e.count}!`, 1.45, 1.2);
           } else if (e.reason === 'uno_penalty') {
             sound.playPenaltyBoom();
+            pushFeed(`${this.nameOf(e.seat)} missed UNO! (+${e.count})`, 'red');
             this.fx(
               e.seat === this.localSeat ? `MISSED UNO! +${e.count} PENALTY` : `${this.nameOf(e.seat)} MISSED UNO! +${e.count}`,
               1.1, 1.1, 'red'
@@ -642,21 +714,27 @@ export class Uno3DGame {
           this.ui.showBanner(`${this.nameOf(e.seat)} drew a playable card!`, color);
           break;
         case 'pass':
+          pushFeed(`${this.nameOf(e.seat)} drew & passed`, 'neutral');
           this.ui.showBanner(`${this.nameOf(e.seat)} passes`, 'neutral');
           break;
         case 'uno':
           sound.playUnoShout();
           this.arena.animateBotReaction(this.getVisualSlot(e.seat), 'jump');
           this.reaction(e.seat, '🔥', 'UNO!');
+          pushFeed(`🔥 ${this.nameOf(e.seat)} shouted UNO!`, 'yellow');
           this.fx(e.seat === this.localSeat ? 'YOU SHOUTED UNO!' : `${this.nameOf(e.seat)} shouts UNO!`, 1.4, 0.8, 'yellow');
           break;
         case 'swap_hands':
+          pushFeed(`7-Rule: ${this.nameOf(e.seat)} swapped hands with ${this.nameOf(e.target)}`, color);
           this.fx(`7: ${this.nameOf(e.seat).toUpperCase()} SWAPPED WITH ${this.nameOf(e.target).toUpperCase()}!`, 1.35, 0.6);
           break;
         case 'rotate_hands':
+          pushFeed('0-Rule: All 3D hands rotated!', color);
           this.fx('0: ALL HANDS ROTATED!', 1.35, 0.6);
           break;
         case 'start_card':
+          this.resetMatchStats();
+          pushFeed(`Match started • ${labelOfCard(e.card, color)}`, color);
           this.arena.triggerShockwave(color, 0.75);
           break;
         default:
@@ -777,7 +855,25 @@ export class Uno3DGame {
     this.arena.triggerShockwave(this.view.activeColor, 2.2);
     this.arena.cameraPunch(1.5);
     const winner = this.players[winnerSeat];
-    this.ui.openVictoryModal(winner, points, winnerSeat === this.localSeat, this.activeCampaignLevel, this.inRoom());
+    const standings = this.players
+      .filter((p) => p.activeSeat && !p.isVacant)
+      .map((p) => ({
+        id: p.id,
+        name: p.id === this.localSeat ? `${p.rawName || p.name} (You)` : p.rawName || p.name,
+        cardsLeft: p.count || 0,
+        isWinner: p.id === winnerSeat,
+      }))
+      .sort((a, b) => a.cardsLeft - b.cardsLeft);
+
+    this.ui.openVictoryModal(
+      winner,
+      points,
+      winnerSeat === this.localSeat,
+      this.activeCampaignLevel,
+      this.inRoom(),
+      standings,
+      { ...this.matchStats }
+    );
   }
 
   syncHUD() {

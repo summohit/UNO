@@ -229,7 +229,15 @@ const uiCallbacks = {
     }
   },
 
-  openVictoryModal(winner, score, isLocalWinner, campaignLevel, isMultiplayer = false) {
+  openVictoryModal(
+    winner,
+    score,
+    isLocalWinner,
+    campaignLevel,
+    isMultiplayer = false,
+    standings = [],
+    stats = {}
+  ) {
     const lvlInfo =
       CAMPAIGN_LEVELS.find((l) => l.level === campaignLevel) ||
       CAMPAIGN_LEVELS[0];
@@ -247,7 +255,7 @@ const uiCallbacks = {
     }
 
     victoryTitle.textContent = isLocalWinner
-      ? '🏆 Victory in 3D Arena!'
+      ? 'Victory in 3D Arena!'
       : `${winner.rawName || winner.name} Wins!`;
     victorySubtitle.textContent = isLocalWinner
       ? isMultiplayer
@@ -257,6 +265,57 @@ const uiCallbacks = {
     victoryScore.textContent = earnsReward
       ? `+${score} PTS • +${lvlInfo.rewardCoins} 🪙`
       : `+${score} PTS`;
+
+    // Update XP Progress Bar
+    const xpWithinLevel = playerProfile.xp % 250;
+    const xpPct = Math.min(100, Math.round((xpWithinLevel / 250) * 100));
+    const lvlLabel = document.getElementById('victory-level-label');
+    const xpLabel = document.getElementById('victory-xp-label');
+    const xpFill = document.getElementById('victory-xp-fill');
+    if (lvlLabel) lvlLabel.textContent = `Level ${playerProfile.level}`;
+    if (xpLabel) {
+      xpLabel.textContent = earnsReward
+        ? `${xpWithinLevel} / 250 XP (+${lvlInfo.rewardXp})`
+        : `${xpWithinLevel} / 250 XP`;
+    }
+    if (xpFill) {
+      xpFill.style.width = '0%';
+      requestAnimationFrame(() => {
+        xpFill.style.width = `${xpPct}%`;
+      });
+    }
+
+    // Render 1st–4th Podium Standings
+    const podiumList = document.getElementById('victory-podium-list');
+    if (podiumList) {
+      podiumList.innerHTML = '';
+      const medals = ['🥇', '🥈', '🥉', '4️⃣'];
+      standings.forEach((entry, idx) => {
+        const li = document.createElement('li');
+        li.className = `podium-row ${entry.isWinner ? 'winner-row' : ''}`;
+        const left = document.createElement('span');
+        left.className = 'podium-left';
+        left.textContent = `${medals[idx] || `${idx + 1}.`} ${entry.name}`;
+        const right = document.createElement('span');
+        right.className = 'podium-cards-tag';
+        right.textContent = entry.isWinner
+          ? 'WINNER'
+          : `${entry.cardsLeft} ${entry.cardsLeft === 1 ? 'card' : 'cards'} left`;
+        li.append(left, right);
+        podiumList.appendChild(li);
+      });
+    }
+
+    // Populate Match Stats Grid
+    const setStat = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(val);
+    };
+    setStat('stat-cards-played', stats.cardsPlayed ?? 0);
+    setStat('stat-action-cards', stats.actionCardsPlayed ?? 0);
+    setStat('stat-biggest-stack', `+${stats.biggestStack ?? 0}`);
+    setStat('stat-total-draws', stats.drawsTotal ?? 0);
+
     victoryDialog.returnValue = '';
     if (!victoryDialog.open) {
       victoryDialog.showModal();
@@ -777,6 +836,52 @@ uiCallbacks.showCardPlayedBanner = (playerName, card, activeColor, isMe) => {
 canvas.addEventListener('pointerdown', (e) => {
   game.handleHumanTap(e.clientX, e.clientY);
 });
+
+// Live Match Feed (Last 3 Plays Strip)
+const matchFeedBox = document.getElementById('match-feed-box');
+const matchFeedList = document.getElementById('match-feed-list');
+const feedToggleBtn = document.getElementById('feed-toggle-btn');
+
+uiCallbacks.clearMatchFeed = () => {
+  if (matchFeedList) matchFeedList.innerHTML = '';
+};
+
+uiCallbacks.pushMatchFeed = (text, colorKey = 'neutral') => {
+  if (!matchFeedList) return;
+  const pal = COLOR_PALETTE[colorKey];
+  const li = document.createElement('li');
+  li.className = 'feed-item';
+
+  const dot = document.createElement('span');
+  dot.className = 'feed-item-dot';
+  dot.style.backgroundColor = pal ? pal.main : '#94a3b8';
+  if (pal) dot.style.boxShadow = `0 0 8px ${pal.glow}`;
+
+  const span = document.createElement('span');
+  span.textContent = text;
+  li.append(dot, span);
+
+  matchFeedList.prepend(li);
+  while (matchFeedList.children.length > 3) {
+    matchFeedList.removeChild(matchFeedList.lastElementChild);
+  }
+};
+
+if (feedToggleBtn && matchFeedBox) {
+  feedToggleBtn.addEventListener('click', () => {
+    const collapsed = matchFeedBox.classList.toggle('collapsed');
+    feedToggleBtn.textContent = collapsed ? '▸' : '▾';
+    feedToggleBtn.setAttribute('aria-expanded', String(!collapsed));
+  });
+}
+
+// One-Tap 3D Sort Hand Button
+const sortHandBtn = document.getElementById('sort-hand-btn');
+if (sortHandBtn) {
+  sortHandBtn.addEventListener('click', () => {
+    game.sortLocalHand();
+  });
+}
 
 document.getElementById('draw-deck-btn').addEventListener('click', () => {
   game.humanDrawFromDeck();

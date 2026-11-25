@@ -88,6 +88,11 @@ export class Uno3DArena {
     this.colorLight.position.set(0, 1.8, 0);
     this.scene.add(this.colorLight);
 
+    // Dynamic Turn-Focus Spotlight that glides to the active player's 3D seat
+    this.turnFocusLight = new THREE.PointLight(0xfacc15, 6.5, 9, 1.6);
+    this.turnFocusLight.position.set(0, 2.8, 4.2);
+    this.scene.add(this.turnFocusLight);
+
     // Rim backlight
     const rimLight = new THREE.DirectionalLight(0x60a5fa, 1.4);
     rimLight.position.set(-6, 5, -7);
@@ -416,18 +421,55 @@ export class Uno3DArena {
   }
 
   highlightTurnPlayer(playerIndex) {
+    // Glide 3D turn spotlight & subtle camera gaze toward the active player's seat
+    const focusTargets = {
+      0: { light: { x: 0, y: 3.1, z: 4.5 }, look: { x: 0, y: this.baseLookAt.y, z: this.baseLookAt.z } },
+      1: { light: { x: -4.4, y: 2.6, z: -0.35 }, look: { x: -0.55, y: this.baseLookAt.y, z: this.baseLookAt.z - 0.15 } },
+      2: { light: { x: 0, y: 2.6, z: -4.4 }, look: { x: 0, y: this.baseLookAt.y, z: this.baseLookAt.z - 0.55 } },
+      3: { light: { x: 4.4, y: 2.6, z: -0.35 }, look: { x: 0.55, y: this.baseLookAt.y, z: this.baseLookAt.z - 0.15 } },
+    };
+    const target = focusTargets[playerIndex] || focusTargets[0];
+
+    if (this.turnFocusLight) {
+      gsap.to(this.turnFocusLight.position, {
+        x: target.light.x,
+        y: target.light.y,
+        z: target.light.z,
+        duration: 0.55,
+        ease: 'power2.out',
+      });
+    }
+
+    gsap.to(this.currentLookAt, {
+      x: target.look.x,
+      y: target.look.y,
+      z: target.look.z,
+      duration: 0.6,
+      ease: 'power2.out',
+    });
+
+    const hasActiveTurn = playerIndex >= 0;
     this.botTotems.forEach((totem) => {
+      if (!totem.occupied) return;
       const isTurn = totem.id === playerIndex;
+      totem.bodyMat.transparent = true;
+      totem.headMat.transparent = true;
+      totem.visorMat.transparent = true;
+
       gsap.to(totem.haloMat, {
-        opacity: isTurn ? 0.95 : 0,
+        opacity: isTurn ? 1 : 0,
         duration: 0.3,
       });
       gsap.to(totem.group.scale, {
-        x: isTurn ? 1.18 : 1,
-        y: isTurn ? 1.18 : 1,
-        z: isTurn ? 1.18 : 1,
+        x: isTurn ? 1.24 : hasActiveTurn ? 0.86 : 1,
+        y: isTurn ? 1.24 : hasActiveTurn ? 0.86 : 1,
+        z: isTurn ? 1.24 : hasActiveTurn ? 0.86 : 1,
+        duration: 0.38,
+        ease: 'back.out(1.6)',
+      });
+      gsap.to([totem.bodyMat, totem.headMat, totem.visorMat], {
+        opacity: isTurn || !hasActiveTurn ? 1 : 0.42,
         duration: 0.35,
-        ease: 'back.out(1.7)',
       });
     });
   }
