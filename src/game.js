@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { gsap } from 'gsap';
 import { COLOR_PALETTE } from './textures.js';
 import { sound } from './audio.js';
-import { DEFAULT_RULES as ENGINE_DEFAULT_RULES, canPlayCard } from '../shared/engine.js';
+import { cardSymbol, cardFullName, isActionCard } from './cardLabels.js';
+import { DEFAULT_RULES as ENGINE_DEFAULT_RULES, canPlayCard, DRAW_VALUE } from '../shared/engine.js';
 import { GameHost } from '../shared/host.js';
 
 export const DEFAULT_RULES = { ...ENGINE_DEFAULT_RULES };
@@ -132,13 +133,36 @@ export class Uno3DGame {
     if (this.view.currentPlayer !== this.localSeat || !this.canPlay(card)) {
       return false;
     }
+    this.beginPlay(card);
+    return true;
+  }
+
+  /** Asks for a colour (wilds) or a swap target (7 with the 7–0 rule) before sending the play. */
+  beginPlay(card) {
     if (card.color === 'wild') {
       this.pendingWildCard = card;
       this.ui.openWildColorModal();
-      return true;
+      return;
+    }
+    const v = this.view;
+    if (card.value === '7' && v.rules.sevenZeroSwap && this.ui.openSwapTargetPicker) {
+      const options = v.players
+        .filter((p) => p.active && p.seat !== this.localSeat && p.count > 0)
+        .map((p) => ({ seat: p.seat, name: p.name, count: p.count }));
+      if (options.length > 1) {
+        this.ui.openSwapTargetPicker(options, (seat) => {
+          // Still our turn and still holding the card?
+          if (this.view?.currentPlayer !== this.localSeat) return;
+          this.sendAction({ type: 'play', cardId: card.id, target: seat });
+        });
+        return;
+      }
+      if (options.length === 1) {
+        this.sendAction({ type: 'play', cardId: card.id, target: options[0].seat });
+        return;
+      }
     }
     this.sendAction({ type: 'play', cardId: card.id });
-    return true;
   }
 
   getLastDiscardInfo() {
@@ -181,7 +205,8 @@ export class Uno3DGame {
     const valueOrder = {
       '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
       '6': 6, '7': 7, '8': 8, '9': 9,
-      skip: 10, reverse: 11, draw2: 12, wild: 13, wild4: 14,
+      skip: 10, reverse: 11, draw2: 12, draw4c: 13, skipall: 14, discardall: 15,
+      wild: 16, wild4: 17, rev4: 18, draw6: 19, draw10: 20, roulette: 21,
     };
     hand.sort((a, b) => {
       const cDiff = (colorOrder[a.color] ?? 9) - (colorOrder[b.color] ?? 9);
@@ -434,11 +459,18 @@ export class Uno3DGame {
     if (!this.view) return;
     this.players = this.view.players.map((p) => ({
       id: p.seat,
-      name: !p.active ? 'VACANT SEAT' : p.seat === this.localSeat ? `${p.name} (You)` : p.name,
+      name: p.eliminated
+        ? `${p.name} 💀 OUT`
+        : !p.active
+          ? 'VACANT SEAT'
+          : p.seat === this.localSeat
+            ? `${p.name} (You)`
+            : p.name,
       rawName: p.name,
       isBot: p.isBot,
       activeSeat: p.active,
-      isVacant: !p.active,
+      isVacant: !p.active && !p.eliminated,
+      eliminated: Boolean(p.eliminated),
       count: p.count,
       calledUno: p.calledUno,
     }));
@@ -521,7 +553,7 @@ export class Uno3DGame {
       next.set(key, mesh);
       if (!wasDiscard) {
         if (isTop && !firstView) {
-          const isAction = c.color === 'wild' || ['skip', 'reverse', 'draw2'].includes(c.value);
+          const isAction = isActionCard(c);
           this.animateCardToDiscard(mesh, idx, isAction);
         } else {
           this.placeOnDiscard(mesh, idx);
@@ -705,19 +737,15 @@ export class Uno3DGame {
     };
     const labelOfCard = (c, activeCol) => {
       if (!c) return 'a card';
-      if (c.value === 'wild') return `Wild → ${COLOR_PALETTE[activeCol]?.label || activeCol}`;
-      if (c.value === 'wild4') return `Wild +4 → ${COLOR_PALETTE[activeCol]?.label || activeCol}`;
-      const colName = COLOR_PALETTE[c.color]?.label || c.color;
-      const valName =
-        c.value === 'draw2' ? '+2' : c.value === 'skip' ? '⊘ Skip' : c.value === 'reverse' ? '⇄ Reverse' : c.value;
-      return `${colName} ${valName}`;
+      const activeLabel = COLOR_PALETTE[activeCol]?.label || activeCol;
+      return cardFullName(c, activeLabel, COLOR_PALETTE[c.color]?.label || c.color);
     };
 
     for (const e of events) {
       switch (e.type) {
         case 'play': {
           this.matchStats.cardsPlayed += 1;
-          if (e.card.color === 'wild' || ['skip', 'reverse', 'draw2'].includes(e.card.value)) {
+          if (isActionCard(e.card)) {
             this.matchStats.actionCardsPlayed += 1;
           }
           const who = e.seat === this.localSeat ? 'You' : this.nameOf(e.seat);
@@ -766,6 +794,8 @@ export class Uno3DGame {
             this.reaction(e.seat, '😱');
             pushFeed(`${this.nameOf(e.seat)} drew +${e.count} penalty`, color);
             this.fx(`${this.nameOf(e.seat).toUpperCase()} DRAWS +${e.count}!`, 1.45, 1.2);
+          } else if (e.reason === 'roulette') {
+            // shown by the 'roulette' event
           } else if (e.reason === 'uno_penalty') {
             sound.playPenaltyBoom();
             pushFeed(`${this.nameOf(e.seat)} missed UNO! (+${e.count})`, 'red');
@@ -798,6 +828,27 @@ export class Uno3DGame {
         case 'rotate_hands':
           pushFeed('0-Rule: All 3D hands rotated!', color);
           this.fx('0: ALL HANDS ROTATED!', 1.35, 0.6);
+          break;
+        case 'skip_all':
+          pushFeed(`⊘⊘ ${e.seat === this.localSeat ? 'You' : this.nameOf(e.seat)} skipped everyone!`, color);
+          this.fx(e.seat === this.localSeat ? '⊘⊘ EVERYONE SKIPPED! GO AGAIN!' : `⊘⊘ ${this.nameOf(e.seat).toUpperCase()} SKIPPED EVERYONE!`, 1.4, 0.9);
+          break;
+        case 'discard_all':
+          pushFeed(`✕ ${this.nameOf(e.seat)} discarded ${e.count} more ${COLOR_PALETTE[e.color]?.label || e.color} cards`, e.color);
+          this.fx(`✕ DISCARD ALL: −${e.count + 1} CARDS!`, 1.3, 0.6, e.color);
+          break;
+        case 'roulette':
+          sound.playPenaltyBoom();
+          this.arena.animateBotReaction(this.getVisualSlot(e.seat), 'hit');
+          this.reaction(e.seat, '🎰');
+          pushFeed(`🎰 ${this.nameOf(e.seat)} flipped ${e.count} cards to find ${COLOR_PALETTE[e.color]?.label || e.color}`, e.color);
+          this.fx(`🎰 ROULETTE: ${this.nameOf(e.seat).toUpperCase()} +${e.count}!`, 1.6, 1.2, e.color);
+          break;
+        case 'eliminated':
+          sound.playPenaltyBoom();
+          this.reaction(e.seat, '💀', 'OUT!');
+          pushFeed(`💀 ${e.seat === this.localSeat ? 'You were' : `${this.nameOf(e.seat)} was`} eliminated (25+ cards)`, 'red');
+          this.fx(e.seat === this.localSeat ? '💀 YOU ARE OUT!' : `💀 ${this.nameOf(e.seat).toUpperCase()} IS OUT!`, 2, 1.4, 'red');
           break;
         case 'player_away':
           if (e.seat !== this.localSeat) pushFeed(`📡 ${this.nameOf(e.seat)} lost connection`, 'neutral');
@@ -844,7 +895,7 @@ export class Uno3DGame {
     if (v.currentPlayer === this.localSeat) {
       this.ui.showBanner(
         (v.pendingDrawStack > 0
-          ? `Your Turn! Stack a +2/+4 or tap Draw (+${v.pendingDrawStack})`
+          ? `Your Turn! Stack a ${v.rules.mode === 'chaos' ? 'bigger draw card' : '+2/+4'} or tap Draw (+${v.pendingDrawStack})`
           : 'Your Turn! Tap a lifted card or tap Draw') + timer,
         secs !== null && secs <= 5 ? 'red' : v.activeColor
       );
@@ -907,18 +958,13 @@ export class Uno3DGame {
       const baseX = hit.userData.basePos?.x ?? hit.position.x;
       gsap.fromTo(hit.position, { x: baseX - 0.14 }, { x: baseX, duration: 0.35, ease: 'elastic.out(2, 0.2)' });
       this.ui.showBanner(
-        v.pendingDrawStack > 0 ? `Stack a +2/+4 or tap Draw (+${v.pendingDrawStack})!` : "Doesn't match the active colour or symbol!",
+        v.pendingDrawStack > 0 ? `Stack a ${v.rules.mode === 'chaos' ? 'draw card worth +' + (DRAW_VALUE[v.activeValue] || 0) + ' or more' : '+2/+4'} or tap Draw (+${v.pendingDrawStack})!` : "Doesn't match the active colour or symbol!",
         v.pendingDrawStack > 0 ? v.activeColor : 'neutral'
       );
       return;
     }
 
-    if (card.color === 'wild') {
-      this.pendingWildCard = card;
-      this.ui.openWildColorModal();
-      return;
-    }
-    this.sendAction({ type: 'play', cardId: card.id });
+    this.beginPlay(card);
   }
 
   humanDrawFromDeck() {
@@ -994,6 +1040,7 @@ export class Uno3DGame {
         isBot: p.isBot,
         activeSeat: p.activeSeat !== false,
         isVacant: Boolean(p.isVacant),
+        eliminated: Boolean(p.eliminated),
         count: p.count || 0,
         isTurn: Boolean(v && !v.gameOver && seat === v.currentPlayer),
         calledUno: p.calledUno && p.count === 1,

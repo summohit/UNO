@@ -799,6 +799,12 @@
       </form>
     </dialog>
 
+    <dialog id="swap-dialog" closedby="none" aria-labelledby="swap-dialog-title">
+      <h1 id="swap-dialog-title" class="dialog-title">Swap Hands With…</h1>
+      <p class="dialog-notice">You played a 7. Pick the player whose hand you take.</p>
+      <form method="dialog" id="swap-options" class="swap-options"></form>
+    </dialog>
+
     <!-- Modal 4: Complete UNO Rulebook & Custom House Rules Builder -->
     <dialog
       id="rules-dialog"
@@ -945,6 +951,18 @@
                 />
                 <label for="rule-jump-in">
                   <span><strong>Jump-In (Exact Twin Card):</strong> Play out-of-turn anytime you hold the exact same color AND number/symbol!</span>
+                </label>
+              </div>
+
+              <div class="check-row chaos-rule-row">
+                <input
+                  type="checkbox"
+                  id="rule-chaos"
+                  name="chaosMode"
+                  class="visually-hidden-fallback"
+                />
+                <label for="rule-chaos">
+                  <span><strong>🔥 Chaos Mode:</strong> 140-card deck with +6, +10, Reverse +4, Skip Everyone, Discard All and Colour Roulette. Stack any equal-or-bigger draw card, draw until you can play, 7–0 swaps on, and 25 cards knocks you out!</span>
                 </label>
               </div>
             </fieldset>

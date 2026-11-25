@@ -402,6 +402,7 @@ const handlers = {
       type: cleanText(data.action?.type, 12),
       cardId: Number(data.action?.cardId),
       color: cleanText(data.action?.color, 8),
+      target: Number(data.action?.target),
     };
     room.game.handle(seatIdx, action); // seat comes from the server, never the client
   },

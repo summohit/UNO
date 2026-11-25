@@ -63,6 +63,21 @@ function getSymbolDisplay(value) {
       return 'W';
     case 'wild4':
       return '+4';
+    // Chaos Mode cards
+    case 'draw4c':
+      return '+4';
+    case 'skipall':
+      return '⊘⊘';
+    case 'discardall':
+      return '✕';
+    case 'rev4':
+      return '⇄4';
+    case 'draw6':
+      return '+6';
+    case 'draw10':
+      return '+10';
+    case 'roulette':
+      return '?';
     default:
       return String(value);
   }
@@ -177,19 +192,20 @@ export function getCardFaceTexture(color, value) {
   }
 
   // Center symbol or special graphic
-  if (value === 'wild4') {
+  if (color === 'wild' && value !== 'wild') {
+    // +4 and the Chaos wilds (+6, +10, Reverse +4, Colour Roulette)
     drawMiniStackedCards(ctx, 256, 360);
     ctx.save();
-    ctx.font = '900 130px "Trebuchet MS", "Arial Black", sans-serif';
+    ctx.font = `900 ${symbol.length > 2 ? 108 : 130}px "Trebuchet MS", "Arial Black", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#111827';
-    ctx.fillText('+4', 262, 476);
+    ctx.fillText(symbol, 262, 476);
     ctx.lineWidth = 10;
     ctx.strokeStyle = '#ffffff';
-    ctx.strokeText('+4', 256, 470);
-    ctx.fillStyle = '#fde047';
-    ctx.fillText('+4', 256, 470);
+    ctx.strokeText(symbol, 256, 470);
+    ctx.fillStyle = value === 'draw10' ? '#f87171' : '#fde047';
+    ctx.fillText(symbol, 256, 470);
     ctx.restore();
   } else if (value === 'wild') {
     ctx.save();
@@ -207,7 +223,7 @@ export function getCardFaceTexture(color, value) {
   } else {
     ctx.save();
     const isTwoChar = symbol.length > 1;
-    ctx.font = `900 ${isTwoChar ? 210 : 265}px "Trebuchet MS", "Arial Black", sans-serif`;
+    ctx.font = `900 ${symbol.length > 2 ? 160 : isTwoChar ? 210 : 265}px "Trebuchet MS", "Arial Black", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 

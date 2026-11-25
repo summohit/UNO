@@ -3,6 +3,7 @@ import { Uno3DGame, DEFAULT_RULES, CAMPAIGN_LEVELS } from './game.js';
 import { MultiplayerClient } from './network.js';
 import { COLOR_PALETTE, getCardFaceDataUrl } from './textures.js';
 import { sound } from './audio.js';
+import { WILD_VALUES, CARD_RULE_TEXT, cardSymbol, cardFullName } from './cardLabels.js';
 
 // Fallback for <dialog closedby="any"> light-dismiss in browsers without native closedBy support
 if (!('closedBy' in HTMLDialogElement.prototype)) {
@@ -178,6 +179,8 @@ function syncRulesFormFromObject(rules) {
     rules.drawUntilPlayable
   );
   document.getElementById('rule-jump-in').checked = Boolean(rules.jumpIn);
+  const chaosBox = document.getElementById('rule-chaos');
+  if (chaosBox) chaosBox.checked = rules.mode === 'chaos';
 
   const handRadio = houseRulesForm.querySelector(
     `input[name="startingHandSize"][value="${rules.startingHandSize}"]`
@@ -328,18 +331,14 @@ const uiCallbacks = {
     activeColorOrb.style.boxShadow = `0 0 12px ${pal.glow}`;
 
     const valDisplay =
-      state.activeValue === 'draw2'
-        ? '+2'
-        : state.activeValue === 'wild4'
-          ? '+4'
-          : state.activeValue.toUpperCase();
+      /^\d$/.test(state.activeValue) ? state.activeValue : cardSymbol(state.activeValue);
     activeStateText.textContent = `${pal.label.toUpperCase()} • ${valDisplay}`;
     directionBadge.textContent = state.direction === 1 ? '👑 CW' : '👑 CCW';
 
     const lastCardThumb = document.getElementById('last-card-thumb');
     if (lastCardThumb) {
       const topColor =
-        state.activeValue === 'wild' || state.activeValue === 'wild4'
+        WILD_VALUES.has(state.activeValue)
           ? 'wild'
           : state.activeColor;
       lastCardThumb.src = getCardFaceDataUrl(topColor, state.activeValue);
@@ -371,6 +370,7 @@ const uiCallbacks = {
         const isPlayingMatch = !state.waitingForAdminStart && !game.gameOver;
         seatEl.classList.toggle('active-turn', vp.isTurn);
         seatEl.classList.toggle('vacant-seat', vp.isVacant);
+        seatEl.classList.toggle('eliminated-seat', vp.eliminated);
         seatEl.classList.toggle(
           'blurred-inactive',
           isPlayingMatch && !vp.isTurn && !vp.isVacant
@@ -380,7 +380,9 @@ const uiCallbacks = {
         nameEl.textContent = vp.isVacant ? 'VACANT SEAT' : vp.name;
       }
       if (countEl) {
-        countEl.textContent = vp.isVacant
+        countEl.textContent = vp.eliminated
+          ? 'Eliminated (25+ cards)'
+          : vp.isVacant
           ? 'Waiting for player...'
           : state.waitingForAdminStart
             ? 'Ready in lobby'
@@ -454,6 +456,37 @@ function showSeatReaction(visualSlot, emoji, label = '') {
 }
 
 uiCallbacks.showSeatReaction = showSeatReaction;
+
+// 7–0 rule: choose whose hand to swap with.
+const swapDialog = document.getElementById('swap-dialog');
+const swapOptions = document.getElementById('swap-options');
+let swapPick = null;
+uiCallbacks.openSwapTargetPicker = (options, onPick) => {
+  swapPick = onPick;
+  swapOptions.replaceChildren(
+    ...options.map((o) => {
+      const btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.value = String(o.seat);
+      btn.className = 'swap-option-btn';
+      const name = document.createElement('strong');
+      name.textContent = o.name;
+      const count = document.createElement('span');
+      count.textContent = `${o.count} ${o.count === 1 ? 'card' : 'cards'}`;
+      btn.append(name, count);
+      return btn;
+    })
+  );
+  swapDialog.returnValue = '';
+  if (!swapDialog.open) swapDialog.showModal();
+};
+swapDialog.addEventListener('cancel', (e) => e.preventDefault()); // a target is required
+swapDialog.addEventListener('close', () => {
+  const seat = Number(swapDialog.returnValue);
+  const pick = swapPick;
+  swapPick = null;
+  if (pick && swapDialog.returnValue !== '' && Number.isInteger(seat)) pick(seat);
+});
 
 function updateHomeAvatarLetter(nameStr) {
   const ch = (nameStr || 'P').trim().charAt(0).toUpperCase() || 'P';
@@ -808,28 +841,13 @@ const playedCardName = document.getElementById('played-card-name');
 let playedToastTimer = null;
 
 function formatCardSymbol(val) {
-  if (val === 'skip') return '⊘';
-  if (val === 'reverse') return '⇄';
-  if (val === 'draw2') return '+2';
-  if (val === 'wild') return 'W';
-  if (val === 'wild4') return '+4';
-  return String(val);
+  return cardSymbol(val);
 }
 
 function formatCardFullName(card, activeColor) {
   const activePal = COLOR_PALETTE[activeColor] || COLOR_PALETTE.red;
-  if (card.value === 'wild') return `Wild → ${activePal.label}`;
-  if (card.value === 'wild4') return `Wild +4 → ${activePal.label}`;
   const cardPal = COLOR_PALETTE[card.color] || activePal;
-  const valLabel =
-    card.value === 'draw2'
-      ? 'Draw +2'
-      : card.value === 'skip'
-        ? 'Skip'
-        : card.value === 'reverse'
-          ? 'Reverse'
-          : card.value;
-  return `${cardPal.label} ${valLabel}`;
+  return cardFullName(card, activePal.label, cardPal.label);
 }
 
 uiCallbacks.showCardPlayedBanner = (playerName, card, activeColor, isMe) => {
@@ -913,13 +931,6 @@ const allCardsGrid = document.getElementById('all-cards-grid');
 const allCardsCountLabel = document.getElementById('all-cards-count-label');
 const allCardsHint = document.getElementById('all-cards-hint');
 
-const CARD_RULE_TEXT = {
-  skip: 'Skip: The next player in turn order loses their turn.',
-  reverse: 'Reverse: Flips the 3D arena play direction (acts as Skip in 2-player).',
-  draw2: 'Draw +2: Forces the next player to draw 2 cards (or stack another +2/+4).',
-  wild: 'Wild: Playable on any turn to change the active arena color.',
-  wild4: 'Wild Draw +4: Changes the active color and forces the next player to draw 4 cards.',
-};
 
 uiCallbacks.openLastCardPreview = (info) => {
   if (!lastCardDialog || !info || !info.card) return;
@@ -1101,6 +1112,7 @@ houseRulesForm.addEventListener('submit', (e) => {
     sevenZeroSwap: data.get('sevenZeroSwap') === 'on',
     drawUntilPlayable: data.get('drawUntilPlayable') === 'on',
     jumpIn: data.get('jumpIn') === 'on',
+    mode: data.get('chaosMode') === 'on' ? 'chaos' : 'classic',
     startingHandSize: Number(data.get('startingHandSize')) || 7,
     unoPenaltyCards: Number(data.get('unoPenaltyCards')) || 2,
   };

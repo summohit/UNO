@@ -51,7 +51,7 @@ Priority: P0 = must fix before going public · P1 = important · P2 = nice to ha
 | 4.1 | **Bug:** big stacks (+8/+12) lose cards when the draw pile runs out partway (the pile isn't refilled mid-draw) | Bug | P0 | game.js / rules | ✅ |
 | 4.2 | **Bug:** a +2/Skip/Reverse turned up as the opening card has no effect | Bug | P1 | game.js / rules | ✅ |
 | 4.3 | Let players catch someone who forgot to call UNO (not only the timer penalty) | Feature | P1 | rules, main.js | ⬜ |
-| 4.4 | Let the player choose who to swap with on a 7 (it currently picks automatically) | Feature | P1 | rules, index.html, main.js | ⬜ |
+| 4.4 | Let the player choose who to swap with on a 7 (it currently picks automatically) | Feature | P1 | rules, index.html, main.js | ✅ |
 | 4.5 | Bots always call UNO → give them a small chance to forget | Feature | P2 | rules | ⬜ |
 | 4.6 | Rematch vote + "play again with the same room" | Feature | P1 | server.js, main.js | ⬜ |
 | 4.7 | Running score across several rounds (to 500 points) | Feature | P2 | server.js, main.js | ⬜ |
@@ -63,17 +63,17 @@ Priority: P0 = must fix before going public · P1 = important · P2 = nice to ha
 
 | # | Item | Type | Priority | Files | Status |
 |---|------|------|----------|-------|--------|
-| 5.1 | Chaos Mode as a ruleset you can pick + toggle in the room rules | Feature | P1 | rules, index.html, main.js | ⬜ |
-| 5.2 | Chaos deck (~160 cards) | Feature | P1 | rules | ⬜ |
-| 5.3 | +6 and +10 draw cards | Feature | P1 | rules, textures.js | ⬜ |
-| 5.4 | Reverse +4 | Feature | P1 | rules, textures.js | ⬜ |
-| 5.5 | Skip Everyone | Feature | P1 | rules, textures.js | ⬜ |
-| 5.6 | Discard All (one colour) | Feature | P1 | rules, textures.js | ⬜ |
-| 5.7 | Colour Roulette (flip cards until the chosen colour) + colour picker | Feature | P1 | rules, textures.js, main.js | ⬜ |
-| 5.8 | Stack any draw card of equal or higher value | Feature | P1 | rules | ⬜ |
-| 5.9 | Draw until you can play, always on | Feature | P1 | rules | ⬜ |
-| 5.10 | Elimination at 25+ cards + "Eliminated" seat state; last player left wins | Feature | P1 | rules, main.js, styles.css | ⬜ |
-| 5.11 | Bots that know when to stack and when to hold big cards | Feature | P2 | rules | ⬜ |
+| 5.1 | Chaos Mode as a ruleset you can pick + toggle in the room rules | Feature | P1 | rules, index.html, main.js | ✅ |
+| 5.2 | Chaos deck (140 cards) | Feature | P1 | rules | ✅ |
+| 5.3 | +6 and +10 draw cards | Feature | P1 | rules, textures.js | ✅ |
+| 5.4 | Reverse +4 | Feature | P1 | rules, textures.js | ✅ |
+| 5.5 | Skip Everyone | Feature | P1 | rules, textures.js | ✅ |
+| 5.6 | Discard All (one colour) | Feature | P1 | rules, textures.js | ✅ |
+| 5.7 | Colour Roulette (flip cards until the chosen colour) + colour picker | Feature | P1 | rules, textures.js, main.js | ✅ |
+| 5.8 | Stack any draw card of equal or higher value | Feature | P1 | rules | ✅ |
+| 5.9 | Draw until you can play, always on | Feature | P1 | rules | ✅ |
+| 5.10 | Elimination at 25+ cards + "Eliminated" seat state; last player left wins | Feature | P1 | rules, main.js, styles.css | ✅ |
+| 5.11 | Bots that know when to stack and when to hold big cards | Feature | P2 | rules | ✅ |
 
 ## Phase 6: Bots
 

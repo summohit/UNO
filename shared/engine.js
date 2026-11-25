@@ -7,7 +7,17 @@ export const COLORS = ['red', 'yellow', 'green', 'blue'];
 const NUMBER_VALUES = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const ACTION_VALUES = ['skip', 'reverse', 'draw2'];
 
+// Chaos Mode cards (colored): +4, Skip Everyone, Discard All.
+const CHAOS_COLOR_VALUES = ['draw4c', 'skipall', 'discardall'];
+// Chaos Mode wild cards: Reverse +4, +6, +10, Colour Roulette.
+const CHAOS_WILD_VALUES = ['rev4', 'draw6', 'draw10', 'roulette'];
+
+/** How many cards a draw card adds to the stack (0 = not a draw card). */
+export const DRAW_VALUE = { draw2: 2, wild4: 4, draw4c: 4, rev4: 4, draw6: 6, draw10: 10 };
+export const ELIMINATION_HAND_SIZE = 25;
+
 export const DEFAULT_RULES = {
+  mode: 'classic', // 'classic' | 'chaos'
   stacking: true,
   drawUntilPlayable: false,
   sevenZeroSwap: false,
@@ -19,6 +29,7 @@ export const DEFAULT_RULES = {
 // Whitelist + clamp rules coming from clients.
 export function sanitizeRules(input = {}) {
   const r = { ...DEFAULT_RULES };
+  if (input.mode === 'chaos') r.mode = 'chaos';
   for (const key of ['stacking', 'drawUntilPlayable', 'sevenZeroSwap', 'jumpIn']) {
     if (typeof input[key] === 'boolean') r[key] = input[key];
   }
@@ -26,6 +37,18 @@ export function sanitizeRules(input = {}) {
   if ([5, 7, 10].includes(hand)) r.startingHandSize = hand;
   const pen = Number(input.unoPenaltyCards);
   if ([2, 4].includes(pen)) r.unoPenaltyCards = pen;
+  return r;
+}
+
+/** Chaos Mode always has stacking, draw-until-playable and 7–0 swaps on. */
+export function effectiveRules(rules) {
+  const r = sanitizeRules(rules);
+  if (r.mode === 'chaos') {
+    r.stacking = true;
+    r.drawUntilPlayable = true;
+    r.sevenZeroSwap = true;
+    r.eliminationAt = ELIMINATION_HAND_SIZE;
+  }
   return r;
 }
 
@@ -37,33 +60,41 @@ export function shuffle(arr, rng = Math.random) {
   return arr;
 }
 
-export function buildDeck(rng = Math.random) {
+/** Classic: 108 cards. Chaos: 140 cards with the extra Chaos cards and no plain wilds. */
+export function buildDeck(rng = Math.random, mode = 'classic') {
+  const chaos = mode === 'chaos';
+  const colorValues = [...NUMBER_VALUES, ...ACTION_VALUES, ...(chaos ? CHAOS_COLOR_VALUES : [])];
   const cards = [];
   let id = 1;
   for (const color of COLORS) {
     cards.push({ id: id++, color, value: '0' });
     for (let copy = 0; copy < 2; copy++) {
-      for (const value of [...NUMBER_VALUES, ...ACTION_VALUES]) {
+      for (const value of colorValues) {
         cards.push({ id: id++, color, value });
       }
     }
   }
+  const wildValues = chaos ? CHAOS_WILD_VALUES : ['wild', 'wild4'];
   for (let i = 0; i < 4; i++) {
-    cards.push({ id: id++, color: 'wild', value: 'wild' });
-    cards.push({ id: id++, color: 'wild', value: 'wild4' });
+    for (const value of wildValues) cards.push({ id: id++, color: 'wild', value });
   }
   return shuffle(cards, rng);
 }
 
 export function cardPoints(card) {
   if (card.color === 'wild') return 50;
-  if (ACTION_VALUES.includes(card.value)) return 20;
-  return parseInt(card.value, 10) || 0;
+  if (/^\d$/.test(card.value)) return parseInt(card.value, 10);
+  return 20;
 }
 
 // Shared by engine and client (to lift playable cards in the hand).
 export function canPlayCard(card, { activeColor, activeValue, pendingDrawStack, rules }) {
   if (!card) return false;
+  if (pendingDrawStack > 0 && rules.mode === 'chaos') {
+    // Chaos: stack any draw card worth the same or more, whatever its colour.
+    const v = DRAW_VALUE[card.value] || 0;
+    return v > 0 && v >= (DRAW_VALUE[activeValue] || 0);
+  }
   if (pendingDrawStack > 0 && rules.stacking) {
     if (activeValue === 'draw2') return card.value === 'draw2' || card.value === 'wild4';
     if (activeValue === 'wild4') return card.value === 'wild4';
@@ -83,7 +114,7 @@ export class UnoEngine {
    */
   constructor({ rules, players, rng = Math.random }) {
     this.rng = rng;
-    this.rules = sanitizeRules(rules);
+    this.rules = effectiveRules(rules);
     this.players = players.map((p, seat) => ({
       seat,
       name: String(p.name || `Player ${seat + 1}`),
@@ -112,7 +143,7 @@ export class UnoEngine {
   start() {
     const events = [];
     if (this.activeSeats().length < 2) throw new Error('Need at least 2 active players');
-    this.drawPile = buildDeck(this.rng);
+    this.drawPile = buildDeck(this.rng, this.rules.mode);
     const handSize = this.rules.startingHandSize;
     for (let round = 0; round < handSize; round++) {
       for (const seat of this.activeSeats()) {
@@ -123,7 +154,8 @@ export class UnoEngine {
 
     // Starter: never a wild; wilds go back into the pile.
     let starter = this.drawPile.pop();
-    while (starter.color === 'wild') {
+    const badStarter = (c) => c.color === 'wild' || (this.rules.mode === 'chaos' && !/^\d$/.test(c.value));
+    while (badStarter(starter)) {
       this.drawPile.unshift(starter);
       starter = this.drawPile.pop();
     }
@@ -192,7 +224,22 @@ export class UnoEngine {
     }
     this.players[seat].calledUno = false;
     events.push({ type: 'draw', seat, reason, count: drawn.length, cards: drawn.map(pub) });
+    this.checkElimination(seat, events);
     return drawn;
+  }
+
+  /** Chaos: a player holding too many cards is out; their cards go back under the pile. */
+  checkElimination(seat, events) {
+    const limit = this.rules.eliminationAt;
+    const p = this.players[seat];
+    if (!limit || !p.active || p.hand.length < limit || this.gameOver) return;
+    p.active = false;
+    p.eliminated = true;
+    p.calledUno = false;
+    this.drawPile.unshift(...shuffle(p.hand.splice(0), this.rng));
+    events.push({ type: 'eliminated', seat });
+    const left = this.activeSeats();
+    if (left.length === 1) this.finish(left[0], events);
   }
 
   bestColorFor(seat) {
@@ -237,7 +284,8 @@ export class UnoEngine {
         }
 
         const color = COLORS.includes(action.color) ? action.color : null;
-        this.playCard(seat, card, color, events);
+        const target = Number.isInteger(action.target) ? action.target : null;
+        this.playCard(seat, card, color, events, target);
         return { ok: true, events };
       }
 
@@ -253,6 +301,7 @@ export class UnoEngine {
   }
 
   drawAction(seat, events) {
+    const player = this.players[seat];
     if (this.pendingDrawStack > 0) {
       const count = this.pendingDrawStack;
       this.pendingDrawStack = 0;
@@ -262,24 +311,25 @@ export class UnoEngine {
     }
 
     let drawn = null;
-    const maxDraws = this.rules.drawUntilPlayable ? 108 : 1;
-    for (let i = 0; i < maxDraws; i++) {
+    const maxDraws = this.rules.drawUntilPlayable ? 200 : 1;
+    for (let i = 0; i < maxDraws && player.active && !this.gameOver; i++) {
       const [c] = this.drawCards(seat, 1, 'draw', events);
       if (!c) break;
       drawn = c;
       if (this.canPlay(c)) break;
     }
+    if (this.gameOver) return;
 
-    if (drawn && this.canPlay(drawn)) {
+    if (player.active && drawn && this.canPlay(drawn)) {
       events.push({ type: 'drew_playable', seat });
-      this.playCard(seat, drawn, this.bestColorFor(seat), events);
+      this.playCard(seat, drawn, this.bestColorFor(seat), events, this.botSwapTarget(seat));
     } else {
-      events.push({ type: 'pass', seat });
+      if (player.active) events.push({ type: 'pass', seat });
       this.advance(1, events);
     }
   }
 
-  playCard(seat, card, chosenColor, events) {
+  playCard(seat, card, chosenColor, events, swapTarget = null) {
     const player = this.players[seat];
     player.hand.splice(player.hand.indexOf(card), 1);
     this.discardPile.push(card);
@@ -287,12 +337,22 @@ export class UnoEngine {
     this.activeColor = card.color === 'wild' ? chosenColor || this.bestColorFor(seat) : card.color;
     events.push({ type: 'play', seat, card: pub(card), color: this.activeColor });
 
+    if (card.value === 'discardall') {
+      // Throw away every other card of this colour too (under the played card).
+      const same = player.hand.filter((c) => c.color === card.color);
+      if (same.length) {
+        player.hand = player.hand.filter((c) => c.color !== card.color);
+        this.discardPile.splice(this.discardPile.length - 1, 0, ...same);
+        events.push({ type: 'discard_all', seat, color: card.color, count: same.length });
+      }
+    }
+
     if (player.hand.length === 0) {
       this.finish(seat, events);
       return;
     }
 
-    this.applySevenZero(seat, card.value, events);
+    this.applySevenZero(seat, card.value, events, swapTarget);
 
     if (player.hand.length === 1) {
       if (player.isBot) {
@@ -305,37 +365,67 @@ export class UnoEngine {
 
     let steps = 1;
     const active = this.activeSeats().length;
-    switch (card.value) {
-      case 'reverse':
-        this.direction *= -1;
-        events.push({ type: 'reverse', direction: this.direction });
-        if (active === 2) steps = 2;
-        break;
-      case 'skip':
-        events.push({ type: 'skip', seat: this.nextSeat(1) });
+    // Skip the victim only if they are still in the game (they may have been eliminated).
+    const skipVictim = (victim) => {
+      if (this.players[victim].active) {
+        events.push({ type: 'skip', seat: victim });
         steps = 2;
-        break;
-      case 'draw2':
-      case 'wild4': {
-        const amount = card.value === 'draw2' ? 2 : 4;
-        if (this.rules.stacking) {
-          this.pendingDrawStack += amount;
-          events.push({ type: 'stack', total: this.pendingDrawStack });
-        } else {
-          const victim = this.nextSeat(1);
-          this.drawCards(victim, amount, 'penalty', events);
-          events.push({ type: 'skip', seat: victim });
-          steps = 2;
-        }
-        break;
       }
-      default:
-        break;
+    };
+
+    if (card.value === 'reverse' || card.value === 'rev4') {
+      this.direction *= -1;
+      events.push({ type: 'reverse', direction: this.direction });
+      if (card.value === 'reverse' && active === 2) steps = 2;
+    }
+
+    const amount = DRAW_VALUE[card.value];
+    if (amount) {
+      if (this.rules.stacking) {
+        this.pendingDrawStack += amount;
+        events.push({ type: 'stack', total: this.pendingDrawStack });
+      } else {
+        const victim = this.nextSeat(1);
+        this.drawCards(victim, amount, 'penalty', events);
+        if (this.gameOver) return;
+        skipVictim(victim);
+      }
+    } else if (card.value === 'skip') {
+      skipVictim(this.nextSeat(1));
+    } else if (card.value === 'skipall') {
+      events.push({ type: 'skip_all', seat });
+      steps = 0; // everyone else is skipped: same player again
+    } else if (card.value === 'roulette') {
+      // Next player flips cards until they hit the chosen colour, keeps them all, and is skipped.
+      const victim = this.nextSeat(1);
+      let flipped = 0;
+      const drawnCards = [];
+      for (let guard = 0; guard < 200 && this.players[victim].active; guard++) {
+        const c = this.drawOne(victim);
+        if (!c) break;
+        flipped++;
+        drawnCards.push(c);
+        if (c.color === this.activeColor) break;
+      }
+      this.players[victim].calledUno = false;
+      events.push({ type: 'draw', seat: victim, reason: 'roulette', count: flipped, cards: drawnCards.map(pub) });
+      events.push({ type: 'roulette', seat: victim, color: this.activeColor, count: flipped });
+      this.checkElimination(victim, events);
+      if (this.gameOver) return;
+      skipVictim(victim);
     }
     this.advance(steps, events);
   }
 
-  applySevenZero(seat, value, events) {
+  /** Default 7-swap target: the opponent with the fewest cards. */
+  botSwapTarget(seat) {
+    const t = this.players
+      .filter((p) => p.active && p.seat !== seat && p.hand.length > 0)
+      .sort((a, b) => a.hand.length - b.hand.length)[0];
+    return t ? t.seat : null;
+  }
+
+  applySevenZero(seat, value, events, requestedTarget = null) {
     if (!this.rules.sevenZeroSwap) return;
     if (value === '0') {
       const seats = this.activeSeats();
@@ -348,15 +438,15 @@ export class UnoEngine {
       });
       events.push({ type: 'rotate_hands', direction: this.direction });
     } else if (value === '7') {
-      const target = this.players
-        .filter((p) => p.active && p.seat !== seat && p.hand.length > 0)
-        .sort((a, b) => a.hand.length - b.hand.length)[0];
-      if (!target) return;
+      const valid = (t) => Number.isInteger(t) && t !== seat && this.players[t]?.active && this.players[t].hand.length > 0;
+      const targetSeat = valid(requestedTarget) ? requestedTarget : this.botSwapTarget(seat);
+      if (targetSeat === null) return;
       const me = this.players[seat];
+      const target = this.players[targetSeat];
       [me.hand, target.hand] = [target.hand, me.hand];
       me.calledUno = false;
       target.calledUno = false;
-      events.push({ type: 'swap_hands', seat, target: target.seat });
+      events.push({ type: 'swap_hands', seat, target: targetSeat });
     }
   }
 
@@ -389,12 +479,19 @@ export class UnoEngine {
     const hand = this.players[seat].hand;
     const playable = hand.filter((c) => this.canPlay(c));
     if (playable.length === 0) return { type: 'draw' };
-    playable.sort((a, b) => (a.color === 'wild') - (b.color === 'wild'));
+    // Coloured cards before wilds; when answering a stack, use the smallest draw card.
+    const drawValue = (c) => DRAW_VALUE[c.value] || 0;
+    playable.sort((a, b) =>
+      this.pendingDrawStack > 0
+        ? drawValue(a) - drawValue(b)
+        : (a.color === 'wild') - (b.color === 'wild')
+    );
     const card = playable[0];
     return {
       type: 'play',
       cardId: card.id,
       color: card.color === 'wild' ? this.bestColorFor(seat) : undefined,
+      target: card.value === '7' ? this.botSwapTarget(seat) : undefined,
     };
   }
 
@@ -422,6 +519,7 @@ export class UnoEngine {
         count: p.hand.length,
         calledUno: p.calledUno,
         away: Boolean(p.away),
+        eliminated: Boolean(p.eliminated),
         hand: p.seat === seat ? p.hand.map(pub) : null,
       })),
     };
