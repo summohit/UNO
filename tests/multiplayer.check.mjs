@@ -1,5 +1,6 @@
 // Integration check against a running server: node tests/multiplayer.check.mjs <port>
 import WebSocket from 'ws';
+import crypto from 'node:crypto';
 import { canPlayCard } from '../shared/engine.js';
 const PORT = process.argv[2] || 4199;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,7 +30,7 @@ function client(name) {
       }
     }
   });
-  return new Promise((res) => ws.on('open', () => res(c)));
+  return new Promise((res) => ws.on('open', () => { ws.send(JSON.stringify({ type: 'hello', token: crypto.randomUUID().replace(/-/g, '') })); res(c); }));
 }
 const send = (c, m) => c.ws.send(JSON.stringify(m));
 
@@ -62,7 +63,7 @@ if (b.view && b.view.currentPlayer === b.seat) send(b, { type: 'action', action:
 await sleep(4000);
 console.log('mid-game: updates A/B', a.updates, b.updates, 'gameOver', b.view.gameOver);
 a.ws.close();
-await sleep(300);
+await sleep(2200); // grace period (run the server with RECONNECT_GRACE_MS=1500)
 console.log('after host left: host is Bob?', b.room.hostId !== undefined && b.room.players.find((p) => p.seat === 0)?.isBot, b.room.players.map((p) => `${p.seat}:${p.name}`).join(', '));
 for (let i = 0; i < 120 && !b.view.gameOver; i++) await sleep(500);
 console.log('game finished after host left?', b.view.gameOver, 'winner seat', b.view.winner, 'points', b.view.points);

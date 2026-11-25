@@ -40,7 +40,7 @@ export class Uno3DArena {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
 
-    this.cardGeometry = new THREE.BoxGeometry(1.06, 1.56, 0.026);
+    this.cardGeometry = new THREE.BoxGeometry(1.06, 1.56, 0.016);
     this.edgeMaterial = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       roughness: 0.35,

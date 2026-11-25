@@ -3336,3 +3336,120 @@ dialog.victory-modal {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+
+/* ============================================================================
+   Crisp Last Card Thumbnail, Last Card HD Preview & Show All Cards Modal
+   ============================================================================ */
+.clickable-status-pill {
+  cursor: pointer;
+  color: var(--text-main);
+  transition: transform 0.16s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.clickable-status-pill:hover,
+.clickable-status-pill:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(250, 204, 21, 0.75);
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.28);
+  outline: none;
+}
+
+.last-card-thumb {
+  width: 1.55rem;
+  height: 2.25rem;
+  border-radius: 0.28rem;
+  border: 1.5px solid #ffffff;
+  object-fit: cover;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.show-all-btn {
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #f3e8ff;
+}
+
+.show-all-btn:hover,
+.show-all-btn:focus-visible {
+  border-color: #c084fc;
+  background: rgba(109, 40, 217, 0.55);
+}
+
+dialog.card-preview-modal {
+  width: min(90dvw, 23rem);
+}
+
+.hd-card-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 0;
+}
+
+.hd-card-image {
+  width: min(14.5rem, 62dvw);
+  aspect-ratio: 2 / 3;
+  border-radius: 1.15rem;
+  box-shadow:
+    0 22px 50px rgba(0, 0, 0, 0.75),
+    0 0 32px rgba(129, 140, 248, 0.28);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+
+.all-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.6rem, 1fr));
+  gap: 0.85rem;
+  padding: 0.35rem 0.2rem 0.6rem;
+}
+
+.hand-grid-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border-radius: 0.9rem;
+  border: 2px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.7);
+  cursor: default;
+  transition: transform 0.16s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hand-grid-card img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.6rem;
+  display: block;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+}
+
+.hand-grid-card.playable {
+  cursor: pointer;
+  border-color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.hand-grid-card.playable:hover,
+.hand-grid-card.playable:focus-visible {
+  transform: translateY(-5px) scale(1.04);
+  outline: none;
+  box-shadow: 0 0 26px rgba(52, 211, 153, 0.55);
+}
+
+.hand-grid-card:not(.playable) {
+  opacity: 0.72;
+}
+
+.hand-card-tag {
+  font-size: 0.68rem;
+  font-weight: var(--fw-button);
+  color: #94a3b8;
+}
+
+.hand-grid-card.playable .hand-card-tag {
+  color: #34d399;
+}

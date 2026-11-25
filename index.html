@@ -148,12 +148,23 @@
           </button>
         </div>
 
-        <div class="table-status-pill" id="active-state-pill">
+        <button
+          type="button"
+          class="table-status-pill clickable-status-pill"
+          id="active-state-pill"
+          title="Tap to preview the last card thrown"
+        >
+          <img
+            id="last-card-thumb"
+            class="last-card-thumb"
+            alt="Last card thrown"
+            hidden
+          />
           <span class="color-orb" id="active-color-orb"></span>
           <span class="state-label" id="active-state-text">RED • 0</span>
           <span class="stack-badge" id="stack-badge" hidden>STACK +2</span>
           <span class="dir-badge" id="direction-badge" title="Play direction">👑 CW</span>
-        </div>
+        </button>
 
         <div class="top-right-cluster">
           <div class="coins-pill" id="top-coins-pill" title="Arena Coins">
@@ -665,6 +676,19 @@
               <path fill="currentColor" d="M3 6h18v2.2H3V6Zm3 5h12v2.2H6V11Zm4 5h4v2.2h-4V16Z" />
             </svg>
             <span>Sort</span>
+          </button>
+
+          <button
+            type="button"
+            class="sort-btn show-all-btn"
+            id="show-cards-btn"
+            aria-label="Show all cards in your hand"
+            title="Show All Your Cards"
+          >
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M3 4h7v7H3V4Zm11 0h7v7h-7V4ZM3 14h7v7H3v-7Zm11 0h7v7h-7v-7Z" />
+            </svg>
+            <span>All Cards</span>
           </button>
 
           <div class="seat-badge seat-human" id="seat-0">
@@ -1236,6 +1260,70 @@
           Back to Main Menu
         </button>
       </form>
+    </dialog>
+
+    <!-- Modal 7: Crisp HD Last Card Thrown Preview -->
+    <dialog
+      id="last-card-dialog"
+      closedby="any"
+      class="card-preview-modal"
+      aria-labelledby="last-card-dialog-title"
+    >
+      <div class="dialog-header-row">
+        <div>
+          <span class="mp-eyebrow" id="last-card-by-label">LAST CARD THROWN</span>
+          <h1 id="last-card-dialog-title" class="dialog-title">Red 8</h1>
+        </div>
+        <button
+          type="button"
+          class="modal-close-btn"
+          id="close-last-card-btn"
+          aria-label="Close card preview"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="hd-card-stage">
+        <img
+          id="last-card-preview-img"
+          class="hd-card-image"
+          alt="High resolution preview of the last card thrown"
+        />
+      </div>
+
+      <p class="dialog-notice" id="last-card-rule-desc" style="text-align: center;">
+        Match the active color or symbol to play on top of this card.
+      </p>
+    </dialog>
+
+    <!-- Modal 8: Show All Cards in Your Hand (Crisp Grid + Direct Tap-to-Play) -->
+    <dialog
+      id="all-cards-dialog"
+      closedby="any"
+      class="wide-dialog"
+      aria-labelledby="all-cards-dialog-title"
+    >
+      <div class="dialog-header-row">
+        <div>
+          <span class="mp-eyebrow" id="all-cards-count-label">YOUR FULL HAND</span>
+          <h1 id="all-cards-dialog-title" class="dialog-title">All Your Cards</h1>
+        </div>
+        <button
+          type="button"
+          class="modal-close-btn"
+          id="close-all-cards-btn"
+          aria-label="Close all cards view"
+        >
+          ✕
+        </button>
+      </div>
+
+      <p class="dialog-notice" id="all-cards-hint">
+        Green-outlined cards are playable right now — tap any playable card to throw it onto the 3D table!
+      </p>
+
+      <div class="all-cards-grid" id="all-cards-grid"></div>
     </dialog>
 
     <script type="module" src="./src/main.js"></script>

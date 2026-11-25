@@ -1,13 +1,41 @@
 // Thin WebSocket client. The server runs the game; this only sends
 // requests and passes server messages to the handlers.
+//
+// Reconnecting: each browser keeps a private token. It is sent on every
+// connect, so after a refresh or a dropped connection the server puts the
+// player back in their seat.
+
+const TOKEN_KEY = 'card_arena_player_token_v1';
+
+function loadToken() {
+  const fresh = () => {
+    const bytes = new Uint8Array(18);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  };
+  try {
+    let t = localStorage.getItem(TOKEN_KEY);
+    if (!t || !/^[A-Za-z0-9_-]{16,64}$/.test(t)) {
+      t = fresh();
+      localStorage.setItem(TOKEN_KEY, t);
+    }
+    return t;
+  } catch {
+    return fresh(); // storage blocked: reconnect works only until the tab closes
+  }
+}
+
 export class MultiplayerClient {
   constructor(handlers) {
     this.handlers = handlers;
+    this.token = loadToken();
     this.ws = null;
-    this.clientId = null;
+    this.myId = null; // public id of our seat in the current room
     this.room = null;
     this.localSeat = 0;
     this.isConnected = false;
+    this.reconnecting = false;
+    this.retryMs = 1000;
     this._connect();
   }
 
@@ -16,13 +44,15 @@ export class MultiplayerClient {
     try {
       this.ws = new WebSocket(`${proto}//${window.location.host}/ws`);
     } catch {
-      setTimeout(() => this._connect(), 2500);
+      this._scheduleReconnect();
       return;
     }
 
     this.ws.addEventListener('open', () => {
       this.isConnected = true;
-      this.handlers.onConnectionChange?.(true);
+      this.retryMs = 1000;
+      this.ws.send(JSON.stringify({ type: 'hello', token: this.token }));
+      this.handlers.onConnectionChange?.(true, Boolean(this.room));
     });
 
     this.ws.addEventListener('message', (event) => {
@@ -36,41 +66,63 @@ export class MultiplayerClient {
     });
 
     this.ws.addEventListener('close', () => {
-      const wasInRoom = Boolean(this.room);
       this.isConnected = false;
-      this.room = null;
-      this.handlers.onConnectionChange?.(false, wasInRoom);
-      setTimeout(() => this._connect(), 2500);
+      // Keep this.room: we try to get back into it when the connection returns.
+      this.reconnecting = Boolean(this.room);
+      this.handlers.onConnectionChange?.(false, this.reconnecting);
+      this._scheduleReconnect();
     });
+  }
+
+  _scheduleReconnect() {
+    setTimeout(() => this._connect(), this.retryMs);
+    this.retryMs = Math.min(this.retryMs * 1.6, 8000);
+  }
+
+  _setRoom(data) {
+    this.room = data.room;
+    this.localSeat = data.seat;
+    if (data.you) this.myId = data.you;
   }
 
   _onMessage(data) {
     const h = this.handlers;
     switch (data.type) {
       case 'welcome':
-        this.clientId = data.clientId;
         if (typeof data.onlineCount === 'number') h.onOnlineCount?.(data.onlineCount);
         break;
       case 'online_count':
         h.onOnlineCount?.(data.count);
         break;
+      case 'no_room':
+        // Reconnected, but our seat is gone (room closed or seat given up).
+        if (this.room) {
+          this.room = null;
+          this.reconnecting = false;
+          h.onRoomLost?.();
+        }
+        break;
+      case 'session_replaced':
+        // The same player opened the game in another tab; that tab has the seat now.
+        this.room = null;
+        this.reconnecting = false;
+        h.onRoomLost?.('This game is open in another tab, so this tab left the room.');
+        break;
       case 'room_joined':
-        this.room = data.room;
-        this.localSeat = data.seat;
+        this._setRoom(data);
+        this.reconnecting = false;
         h.onRoomJoined?.(this.room, this.localSeat);
         break;
       case 'room_updated':
         if (!this.room) return;
-        this.room = data.room;
-        this.localSeat = data.seat;
+        this._setRoom(data);
         h.onRoomUpdated?.(this.room, this.localSeat);
         break;
       case 'room_error':
         h.onRoomError?.(data.message);
         break;
       case 'match_started':
-        this.room = data.room;
-        this.localSeat = data.seat;
+        this._setRoom(data);
         h.onMatchStarted?.(this.room, this.localSeat);
         break;
       case 'game_update':
@@ -98,7 +150,7 @@ export class MultiplayerClient {
   }
 
   isHost() {
-    return Boolean(this.room) && this.room.hostId === this.clientId;
+    return Boolean(this.room) && Boolean(this.myId) && this.room.hostId === this.myId;
   }
 
   createRoom(roomName, playerName, rules) {
@@ -120,7 +172,9 @@ export class MultiplayerClient {
   leaveRoom() {
     this._send({ type: 'leave_room' });
     this.room = null;
+    this.myId = null;
     this.localSeat = 0;
+    this.reconnecting = false;
   }
 
   updateRules(rules) {

@@ -12,11 +12,14 @@ export class GameHost {
    * @param {number} [opts.botDelayMs]
    * @param {number} [opts.unoWindowMs]
    */
-  constructor({ rules, players, send, botDelayMs = 1100, unoWindowMs = 3200, rng }) {
+  constructor({ rules, players, send, botDelayMs = 1100, unoWindowMs = 3200, turnMs = null, rng }) {
     this.engine = new UnoEngine({ rules, players, rng });
     this.send = send;
     this.botDelayMs = botDelayMs;
     this.unoWindowMs = unoWindowMs;
+    this.turnMs = turnMs; // null = no turn timer (solo)
+    this.turnTimer = null;
+    this.turnEndsAt = null;
     this.botTimer = null;
     this.unoTimers = new Map();
     this.stopped = false;
@@ -41,6 +44,7 @@ export class GameHost {
 
   publish(events) {
     if (this.stopped) return;
+    if (events.some((e) => e.type === 'turn' || e.type === 'roster')) this.scheduleTurnTimer();
     for (let seat = 0; seat < 4; seat++) {
       this.sendView(seat, events);
     }
@@ -53,9 +57,29 @@ export class GameHost {
   sendView(seat, events = []) {
     this.send(seat, {
       type: 'game_update',
-      view: this.engine.viewFor(seat),
+      view: {
+        ...this.engine.viewFor(seat),
+        turnMsLeft: this.turnEndsAt ? Math.max(0, this.turnEndsAt - Date.now()) : null,
+      },
       events: redactEvents(events, seat),
     });
+  }
+
+  /** Humans who run out of time draw automatically (or take the stacked penalty). */
+  scheduleTurnTimer() {
+    clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    this.turnEndsAt = null;
+    const e = this.engine;
+    if (!this.turnMs || e.gameOver) return;
+    const seat = e.currentPlayer;
+    if (e.players[seat].isBot) return;
+    this.turnEndsAt = Date.now() + this.turnMs;
+    this.turnTimer = setTimeout(() => {
+      if (this.stopped || e.gameOver || e.currentPlayer !== seat) return;
+      this.publish([{ type: 'timeout', seat }]);
+      this.handle(seat, { type: 'draw' });
+    }, this.turnMs);
   }
 
   startUnoTimer(seat) {
@@ -96,9 +120,18 @@ export class GameHost {
     this.publish([{ type: 'roster', seat }]);
   }
 
+  /** Mark a seat as disconnected (shown to others) without handing it to a bot yet. */
+  setAway(seat, away) {
+    const p = this.engine.players[seat];
+    if (!p || Boolean(p.away) === away) return;
+    p.away = away;
+    this.publish([{ type: away ? 'player_away' : 'player_back', seat }]);
+  }
+
   stop() {
     this.stopped = true;
     clearTimeout(this.botTimer);
+    clearTimeout(this.turnTimer);
     for (const t of this.unoTimers.values()) clearTimeout(t);
     this.unoTimers.clear();
   }

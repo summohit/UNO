@@ -1,7 +1,7 @@
 import { Uno3DArena } from './scene.js';
 import { Uno3DGame, DEFAULT_RULES, CAMPAIGN_LEVELS } from './game.js';
 import { MultiplayerClient } from './network.js';
-import { COLOR_PALETTE } from './textures.js';
+import { COLOR_PALETTE, getCardFaceDataUrl } from './textures.js';
 import { sound } from './audio.js';
 
 // Fallback for <dialog closedby="any"> light-dismiss in browsers without native closedBy support
@@ -336,6 +336,16 @@ const uiCallbacks = {
     activeStateText.textContent = `${pal.label.toUpperCase()} • ${valDisplay}`;
     directionBadge.textContent = state.direction === 1 ? '👑 CW' : '👑 CCW';
 
+    const lastCardThumb = document.getElementById('last-card-thumb');
+    if (lastCardThumb) {
+      const topColor =
+        state.activeValue === 'wild' || state.activeValue === 'wild4'
+          ? 'wild'
+          : state.activeColor;
+      lastCardThumb.src = getCardFaceDataUrl(topColor, state.activeValue);
+      lastCardThumb.hidden = false;
+    }
+
     if (state.pendingDrawStack > 0) {
       stackBadge.hidden = false;
       stackBadge.textContent = `STACK +${state.pendingDrawStack}`;
@@ -611,7 +621,15 @@ function renderWaitingRoomOverlay(room, localSeat) {
 
     const topRow = document.createElement('div');
     topRow.className = 'waiting-seat-top';
-    topRow.innerHTML = `<span>SEAT ${s + 1} ${s === 0 ? '• ADMIN' : ''}</span><span>${occupant ? (occupant.isBot ? '🤖 BOT' : '🟢 READY') : '⚪ VACANT'}</span>`;
+    const status = !occupant
+      ? '⚪ VACANT'
+      : occupant.away
+        ? '📡 RECONNECTING'
+        : occupant.isBot
+          ? '🤖 BOT'
+          : '🟢 READY';
+    const isRoomHost = occupant && occupant.id === room.hostId;
+    topRow.innerHTML = `<span>SEAT ${s + 1} ${isRoomHost ? '• ADMIN' : ''}</span><span>${status}</span>`;
 
     const nameEl = document.createElement('strong');
     nameEl.className = 'waiting-seat-name';
@@ -656,10 +674,18 @@ const network = new MultiplayerClient({
     if (!connected && onlineText) {
       onlineText.textContent = 'Offline • Solo Ready';
     }
+    // In a room: keep the table on screen and rejoin automatically.
     if (!connected && wasInRoom) {
-      showHomeScreen();
-      uiCallbacks.showBanner('Lost connection to the game server.', 'red');
+      uiCallbacks.showBanner('Connection lost • Reconnecting...', 'red');
     }
+  },
+
+  onRoomLost(message) {
+    showHomeScreen();
+    uiCallbacks.showBanner(
+      message || 'Your seat in the room was released. Join again with the room code.',
+      'red'
+    );
   },
 
   onOnlineCount(count) {
@@ -874,6 +900,103 @@ if (feedToggleBtn && matchFeedBox) {
     feedToggleBtn.setAttribute('aria-expanded', String(!collapsed));
   });
 }
+
+// Last Card HD Preview Modal & Show All Cards Modal
+const lastCardDialog = document.getElementById('last-card-dialog');
+const lastCardByLabel = document.getElementById('last-card-by-label');
+const lastCardDialogTitle = document.getElementById('last-card-dialog-title');
+const lastCardPreviewImg = document.getElementById('last-card-preview-img');
+const lastCardRuleDesc = document.getElementById('last-card-rule-desc');
+
+const allCardsDialog = document.getElementById('all-cards-dialog');
+const allCardsGrid = document.getElementById('all-cards-grid');
+const allCardsCountLabel = document.getElementById('all-cards-count-label');
+const allCardsHint = document.getElementById('all-cards-hint');
+
+const CARD_RULE_TEXT = {
+  skip: 'Skip: The next player in turn order loses their turn.',
+  reverse: 'Reverse: Flips the 3D arena play direction (acts as Skip in 2-player).',
+  draw2: 'Draw +2: Forces the next player to draw 2 cards (or stack another +2/+4).',
+  wild: 'Wild: Playable on any turn to change the active arena color.',
+  wild4: 'Wild Draw +4: Changes the active color and forces the next player to draw 4 cards.',
+};
+
+uiCallbacks.openLastCardPreview = (info) => {
+  if (!lastCardDialog || !info || !info.card) return;
+  const card = info.card;
+  const activeCol = info.activeColor || card.color;
+  lastCardByLabel.textContent =
+    info.byName === 'Opening Card'
+      ? 'OPENING TABLE CARD'
+      : `THROWN BY ${String(info.byName || 'PLAYER').toUpperCase()}`;
+  lastCardDialogTitle.textContent = formatCardFullName(card, activeCol);
+  lastCardPreviewImg.src = getCardFaceDataUrl(card.color, card.value);
+  lastCardRuleDesc.textContent =
+    CARD_RULE_TEXT[card.value] ||
+    'Number Card: Match the active color or the same number to play on top.';
+  lastCardDialog.returnValue = '';
+  if (!lastCardDialog.open) lastCardDialog.showModal();
+};
+
+document.getElementById('active-state-pill')?.addEventListener('click', () => {
+  const info = game.getLastDiscardInfo();
+  if (info) uiCallbacks.openLastCardPreview(info);
+});
+
+document.getElementById('close-last-card-btn')?.addEventListener('click', () => {
+  lastCardDialog?.close();
+});
+
+function openAllCardsModal() {
+  if (!allCardsDialog || !allCardsGrid) return;
+  const cards = game.getLocalHandCards();
+  allCardsCountLabel.textContent = `YOUR FULL HAND • ${cards.length} ${cards.length === 1 ? 'CARD' : 'CARDS'}`;
+  const playableCount = cards.filter((c) => c.playable).length;
+  allCardsHint.textContent =
+    playableCount > 0
+      ? `${playableCount} ${playableCount === 1 ? 'card is' : 'cards are'} playable right now — tap any green-highlighted card to play it!`
+      : 'Review all cards in your hand. Tap any card when it is your turn to play.';
+
+  allCardsGrid.innerHTML = '';
+  cards.forEach((card) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `hand-grid-card ${card.playable ? 'playable' : ''}`;
+    btn.disabled = !card.playable;
+
+    const img = document.createElement('img');
+    img.src = getCardFaceDataUrl(card.color, card.value);
+    img.alt = formatCardFullName(card, card.color);
+
+    const tag = document.createElement('span');
+    tag.className = 'hand-card-tag';
+    tag.textContent = card.playable ? '✓ Tap to Play' : formatCardFullName(card, card.color);
+
+    btn.append(img, tag);
+    if (card.playable) {
+      btn.addEventListener('click', () => {
+        allCardsDialog.close();
+        game.playCardByIdFromModal(card.id);
+      });
+    }
+    allCardsGrid.appendChild(btn);
+  });
+
+  allCardsDialog.returnValue = '';
+  if (!allCardsDialog.open) allCardsDialog.showModal();
+}
+
+document.getElementById('show-cards-btn')?.addEventListener('click', openAllCardsModal);
+document.getElementById('close-all-cards-btn')?.addEventListener('click', () => {
+  allCardsDialog?.close();
+});
+
+lastCardDialog?.addEventListener('close', () => {
+  lastCardDialog.returnValue = '';
+});
+allCardsDialog?.addEventListener('close', () => {
+  allCardsDialog.returnValue = '';
+});
 
 // One-Tap 3D Sort Hand Button
 const sortHandBtn = document.getElementById('sort-hand-btn');

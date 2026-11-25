@@ -421,6 +421,7 @@ export class UnoEngine {
         active: p.active,
         count: p.hand.length,
         calledUno: p.calledUno,
+        away: Boolean(p.away),
         hand: p.seat === seat ? p.hand.map(pub) : null,
       })),
     };

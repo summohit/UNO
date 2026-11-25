@@ -34,15 +34,15 @@ Priority: P0 = must fix before going public · P1 = important · P2 = nice to ha
 | 2.5 | **Bug:** the folder check uses `startsWith` (a sibling folder whose name starts with `uno-3d` passes it) | Security | P2 | server.js | ✅ |
 | 2.6 | Join by code only (joining by room name lets strangers walk in) | Security | P1 | server.js, main.js | ⬜ |
 | 2.7 | Remove the email field (collected and sent to everyone, never used) | Privacy | P1 | server.js, main.js, network.js | ✅ |
-| 2.8 | Delete empty or inactive rooms after a few minutes | Stability | P1 | server.js | ⬜ |
+| 2.8 | Delete empty or inactive rooms after a few minutes | Stability | P1 | server.js | ✅ |
 
 ## Phase 3: Reconnecting and turn flow
 
 | # | Item | Type | Priority | Files | Status |
 |---|------|------|----------|-------|--------|
-| 3.1 | Player token saved in the browser → get your seat back after a refresh or network drop | Feature | P0 | server.js, network.js | ⬜ |
-| 3.2 | A bot takes over a seat after about 30s away; the player can take it back on return | Feature | P1 | server.js | ⬜ |
-| 3.3 | Turn timer (20–30s, then draw automatically) | Feature | P1 | server.js, main.js | ⬜ |
+| 3.1 | Player token saved in the browser → get your seat back after a refresh or network drop | Feature | P0 | server.js, network.js | ✅ |
+| 3.2 | A bot takes over a seat after about 30s away; the player can take it back on return | Feature | P1 | server.js | ✅ |
+| 3.3 | Turn timer (20–30s, then draw automatically) | Feature | P1 | server.js, main.js | ✅ |
 
 ## Phase 4: Game rule bugs and gameplay
 

@@ -105,6 +105,53 @@ export class Uno3DGame {
       biggestStack: 0,
       drawsTotal: 0,
     };
+    this.lastPlayedInfo = null;
+  }
+
+  getLocalHandCards() {
+    const hand = this.hands[this.localSeat] || [];
+    const isMyTurn = Boolean(
+      this.view &&
+        !this.view.gameOver &&
+        !this.waitingForAdminStart &&
+        this.view.currentPlayer === this.localSeat
+    );
+    return hand.map((entry) => ({
+      id: entry.id,
+      color: entry.color,
+      value: entry.value,
+      playable: isMyTurn && this.canPlay(entry),
+    }));
+  }
+
+  playCardByIdFromModal(cardId) {
+    if (this.isBusy || this.waitingForAdminStart || !this.view) return false;
+    const hand = this.hands[this.localSeat] || [];
+    const card = hand.find((c) => c.id === cardId);
+    if (!card) return false;
+    if (this.view.currentPlayer !== this.localSeat || !this.canPlay(card)) {
+      return false;
+    }
+    if (card.color === 'wild') {
+      this.pendingWildCard = card;
+      this.ui.openWildColorModal();
+      return true;
+    }
+    this.sendAction({ type: 'play', cardId: card.id });
+    return true;
+  }
+
+  getLastDiscardInfo() {
+    if (this.lastPlayedInfo) return this.lastPlayedInfo;
+    if (!this.view) return null;
+    return {
+      card: {
+        color: this.view.activeColor,
+        value: this.view.activeValue,
+      },
+      activeColor: this.view.activeColor,
+      byName: 'Opening Card',
+    };
   }
 
   resetMatchStats() {
@@ -351,6 +398,11 @@ export class Uno3DGame {
     this.localSeat = view.seat;
     this.view = view;
     this.rules = { ...this.rules, ...view.rules };
+    // Turn timer (multiplayer only): convert to a local deadline and tick the banner.
+    this.turnEndsAt = typeof view.turnMsLeft === 'number' ? Date.now() + view.turnMsLeft : null;
+    if (this.turnEndsAt && !this.turnTicker) {
+      this.turnTicker = setInterval(() => this.updateTurnBanner(), 1000);
+    }
     this.applyViewRoster();
     this.update3DSeatTotems();
 
@@ -418,7 +470,8 @@ export class Uno3DGame {
   }
 
   deckTopPosition() {
-    return new THREE.Vector3(this.deckPos.x, this.deckPos.y + Math.min(this.deck.length, MAX_DECK_MESHES) * 0.0045, this.deckPos.z);
+    const visibleDeck = Math.min(this.deck.length, 12);
+    return new THREE.Vector3(this.deckPos.x, this.deckPos.y + visibleDeck * 0.022, this.deckPos.z);
   }
 
   reconcileMeshes(lastPlay, firstView) {
@@ -449,11 +502,12 @@ export class Uno3DGame {
 
     if (this.keepHandSorted) this.sortHandEntries(this.hands[this.localSeat]);
 
-    // Discard pile (most recent cards only)
+    // Discard pile (cap to top 8 cards with non-overlapping Y step to prevent Z-fighting pixelation)
     const oldRoles = new Map([...this.meshes].map(([k, m]) => [k, m.userData.role]));
-    this.discard = v.discardTop.map((c, idx) => {
+    const visibleDiscard = v.discardTop.slice(-8);
+    this.discard = visibleDiscard.map((c, idx) => {
       const key = `c${c.id}`;
-      const isTop = idx === v.discardTop.length - 1;
+      const isTop = idx === visibleDiscard.length - 1;
       let spawn = deckTop;
       if (isTop && lastPlay && lastPlay.card.id === c.id) {
         const slot = this.getVisualSlot(lastPlay.seat);
@@ -462,6 +516,8 @@ export class Uno3DGame {
       const mesh = this.takeMesh(key, c, spawn);
       const wasDiscard = oldRoles.get(key) === 'discard';
       mesh.userData = { ...mesh.userData, card: c, owner: undefined, isDrawDeck: false, role: 'discard' };
+      mesh.castShadow = isTop;
+      mesh.receiveShadow = isTop;
       next.set(key, mesh);
       if (!wasDiscard) {
         if (isTop && !firstView) {
@@ -470,18 +526,24 @@ export class Uno3DGame {
         } else {
           this.placeOnDiscard(mesh, idx);
         }
+      } else {
+        // Keep shifted discard cards strictly separated in Y so they never Z-fight
+        mesh.position.y = this.discardPos.y + (idx + 1) * 0.022;
       }
       return { key, mesh };
     });
 
-    // Draw pile (a visual stack; only the count matters)
-    const deckCount = Math.min(v.drawCount, MAX_DECK_MESHES);
+    // Draw pile (capped to 12 crisp non-overlapping 3D cards)
+    const deckCount = Math.min(v.drawCount, 12);
     this.deck = [];
     for (let i = 0; i < deckCount; i++) {
       const key = `d${i}`;
       const mesh = this.meshes.get(key) || this.makeCardMesh(null);
+      const isTopDeck = i === deckCount - 1;
       mesh.userData = { ...mesh.userData, card: null, owner: undefined, isDrawDeck: true, role: 'deck' };
-      mesh.position.set(this.deckPos.x, this.deckPos.y + i * 0.0045, this.deckPos.z);
+      mesh.castShadow = isTopDeck;
+      mesh.receiveShadow = isTopDeck;
+      mesh.position.set(this.deckPos.x, this.deckPos.y + i * 0.022, this.deckPos.z);
       mesh.rotation.set(Math.PI / 2, 0, 0);
       mesh.scale.set(1, 1, 1);
       next.set(key, mesh);
@@ -520,7 +582,7 @@ export class Uno3DGame {
   placeOnDiscard(mesh, idx) {
     gsap.killTweensOf(mesh.position);
     gsap.killTweensOf(mesh.rotation);
-    mesh.position.set(this.discardPos.x, this.discardPos.y + (idx + 1) * 0.0055, this.discardPos.z);
+    mesh.position.set(this.discardPos.x, this.discardPos.y + (idx + 1) * 0.022, this.discardPos.z);
     mesh.rotation.set(-Math.PI / 2, 0, ((idx % 5) - 2) * 0.12);
     mesh.scale.set(1, 1, 1);
   }
@@ -550,15 +612,15 @@ export class Uno3DGame {
 
         if (visualSlot === 0) {
           const maxSpread = Math.min(0.86, 5.4 / Math.max(count, 1));
-          const arch = Math.abs(offset) * 0.058;
+          const arch = Math.abs(offset) * 0.052;
           const playable = isMyTurn && entry.color && this.canPlay(entry);
-          targetScale = 1.32;
+          targetScale = count > 13 ? 1.08 : count > 9 ? 1.2 : 1.32;
           targetPos.set(
             offset * maxSpread,
             1.78 - arch + (playable ? 0.28 : 0),
-            4.55 + arch * 0.35 + i * 0.02 + (playable ? -0.18 : 0)
+            4.55 + arch * 0.3 + i * 0.032 + (playable ? -0.18 : 0)
           );
-          targetRot.set(-0.62, 0, -offset * 0.058);
+          targetRot.set(-0.62, 0, -offset * 0.052);
         } else {
           const spread = Math.min(0.36, 2.4 / Math.max(count, 1));
           if (visualSlot === 1) {
@@ -591,7 +653,7 @@ export class Uno3DGame {
   animateCardToDiscard(mesh, stackIndex, isAction = false) {
     gsap.killTweensOf(mesh.position);
     gsap.killTweensOf(mesh.rotation);
-    const destY = this.discardPos.y + (stackIndex + 1) * 0.0055;
+    const destY = this.discardPos.y + (stackIndex + 1) * 0.022;
     const startPos = mesh.position.clone();
     const midPos = new THREE.Vector3(
       (startPos.x + this.discardPos.x) * 0.5,
@@ -659,6 +721,11 @@ export class Uno3DGame {
             this.matchStats.actionCardsPlayed += 1;
           }
           const who = e.seat === this.localSeat ? 'You' : this.nameOf(e.seat);
+          this.lastPlayedInfo = {
+            card: { ...e.card },
+            activeColor: e.color,
+            byName: who,
+          };
           pushFeed(`${who} played ${labelOfCard(e.card, e.color)}`, e.card.color === 'wild' ? e.color : e.card.color);
           this.ui.showCardPlayedBanner?.(this.nameOf(e.seat), e.card, e.color, e.seat === this.localSeat);
           if (e.card.color === 'wild') {
@@ -732,8 +799,23 @@ export class Uno3DGame {
           pushFeed('0-Rule: All 3D hands rotated!', color);
           this.fx('0: ALL HANDS ROTATED!', 1.35, 0.6);
           break;
+        case 'player_away':
+          if (e.seat !== this.localSeat) pushFeed(`📡 ${this.nameOf(e.seat)} lost connection`, 'neutral');
+          break;
+        case 'player_back':
+          if (e.seat !== this.localSeat) pushFeed(`✅ ${this.nameOf(e.seat)} is back`, 'neutral');
+          break;
+        case 'timeout':
+          pushFeed(`⏱ ${e.seat === this.localSeat ? 'You' : this.nameOf(e.seat)} ran out of time`, 'neutral');
+          if (e.seat === this.localSeat) this.fx("⏱ TIME'S UP!", 0.8, 0.4, 'red');
+          break;
         case 'start_card':
           this.resetMatchStats();
+          this.lastPlayedInfo = {
+            card: { ...e.card },
+            activeColor: color,
+            byName: 'Opening Card',
+          };
           pushFeed(`Match started • ${labelOfCard(e.card, color)}`, color);
           this.arena.triggerShockwave(color, 0.75);
           break;
@@ -752,16 +834,23 @@ export class Uno3DGame {
 
   updateTurnBanner() {
     const v = this.view;
-    if (!v || this.waitingForAdminStart) return;
+    if (!v || v.gameOver || this.waitingForAdminStart) {
+      clearInterval(this.turnTicker);
+      this.turnTicker = null;
+      return;
+    }
+    const secs = this.turnEndsAt ? Math.max(0, Math.ceil((this.turnEndsAt - Date.now()) / 1000)) : null;
+    const timer = secs !== null ? ` • ${secs}s` : '';
     if (v.currentPlayer === this.localSeat) {
       this.ui.showBanner(
-        v.pendingDrawStack > 0
+        (v.pendingDrawStack > 0
           ? `Your Turn! Stack a +2/+4 or tap Draw (+${v.pendingDrawStack})`
-          : 'Your Turn! Tap a lifted card or tap Draw',
-        v.activeColor
+          : 'Your Turn! Tap a lifted card or tap Draw') + timer,
+        secs !== null && secs <= 5 ? 'red' : v.activeColor
       );
     } else {
-      this.ui.showBanner(`${this.nameOf(v.currentPlayer)}'s Turn...`, v.activeColor);
+      const away = v.players[v.currentPlayer]?.away ? ' (reconnecting)' : '';
+      this.ui.showBanner(`${this.nameOf(v.currentPlayer)}'s Turn${away}...${timer}`, v.activeColor);
     }
   }
 
@@ -769,11 +858,28 @@ export class Uno3DGame {
   // Player input
   // ---------------------------------------------------------------------
   handleHumanTap(clientX, clientY) {
-    if (this.isBusy || this.waitingForAdminStart) return;
+    if (this.waitingForAdminStart) return;
     const mine = (this.hands[this.localSeat] || []).map((h) => h.mesh);
-    const top = this.deck.length ? [this.deck[this.deck.length - 1]] : [];
-    const hit = this.arena.pickCard(clientX, clientY, [...mine, ...top]);
+    const topDeck = this.deck.length ? [this.deck[this.deck.length - 1]] : [];
+    const topDiscard = this.discard.length
+      ? [this.discard[this.discard.length - 1].mesh]
+      : [];
+    const hit = this.arena.pickCard(clientX, clientY, [
+      ...mine,
+      ...topDeck,
+      ...topDiscard,
+    ]);
     if (!hit) return;
+
+    if (topDiscard.length && hit === topDiscard[0]) {
+      const info = this.getLastDiscardInfo();
+      if (info && this.ui.openLastCardPreview) {
+        this.ui.openLastCardPreview(info);
+      }
+      return;
+    }
+
+    if (this.isBusy) return;
 
     if (hit.userData.isDrawDeck) {
       this.humanDrawFromDeck();

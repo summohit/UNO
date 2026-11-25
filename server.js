@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { GameHost } from './shared/host.js';
@@ -8,6 +9,9 @@ import { sanitizeRules } from './shared/engine.js';
 
 const PORT = process.env.PORT || 4173;
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS) || 30_000;
+const TURN_MS = Number(process.env.TURN_MS) || 30_000;
+const EMPTY_ROOM_MS = Number(process.env.EMPTY_ROOM_MS) || 5 * 60_000;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -22,12 +26,7 @@ const MIME_TYPES = {
 };
 
 // Only these paths are served; server code, package files, etc. are not.
-const PUBLIC_PREFIXES = [
-  '/src/',
-  '/shared/',
-  '/node_modules/three/build/',
-  '/node_modules/gsap/',
-];
+const PUBLIC_PREFIXES = ['/src/', '/shared/', '/node_modules/three/build/', '/node_modules/gsap/'];
 
 const server = http.createServer((req, res) => {
   let pathname;
@@ -64,18 +63,27 @@ const server = http.createServer((req, res) => {
 
 // ---------------------------------------------------------------------------
 // Rooms
-// room = { code, roomName, hostId, rules, started, seats: [seat|null x4], game: GameHost|null }
-// seat = { clientId, name, isBot, ws }
+// room = { code, roomName, hostId, rules, started, seats: [seat|null x4], game, emptyTimer }
+// seat = {
+//   id        public id, shown to other players (hostId refers to it)
+//   token     private reconnect token, only ever known by that player's browser
+//   name, isBot,
+//   away      true while a human seat is disconnected (bot may be covering)
+//   ws, awayTimer
+// }
 // ---------------------------------------------------------------------------
 const rooms = new Map();
+const tokenToRoom = new Map(); // token -> room code
 const BOT_NAMES = ['Ace (Bot)', 'Nova (Bot)', 'Apex (Bot)', 'Blaze (Bot)'];
 
 const cleanText = (v, max) => String(v ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, max);
+const newId = () => crypto.randomBytes(6).toString('hex');
+const isValidToken = (t) => typeof t === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(t);
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 6; i++) code += chars[crypto.randomInt(chars.length)];
   return rooms.has(code) ? generateRoomCode() : code;
 }
 
@@ -83,37 +91,72 @@ function send(ws, payload) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(payload));
 }
 
+const isHuman = (s) => s && s.token;
+const isConnected = (s) => isHuman(s) && s.ws && s.ws.readyState === 1;
+
 function publicRoom(room) {
   const players = [];
   room.seats.forEach((s, seat) => {
     if (!s) return;
     players.push({
-      id: s.clientId,
+      id: s.id,
       name: s.name,
       seat,
       isBot: s.isBot,
-      connected: s.isBot || Boolean(s.ws && s.ws.readyState === 1),
+      away: Boolean(s.away),
+      connected: s.isBot ? !s.away : isConnected(s),
     });
   });
-  return {
-    code: room.code,
-    roomName: room.roomName,
-    hostId: room.hostId,
-    started: room.started,
-    rules: room.rules,
-    players,
-  };
+  return { code: room.code, roomName: room.roomName, hostId: room.hostId, started: room.started, rules: room.rules, players };
+}
+
+function sendRoom(room, s, seat, type) {
+  send(s.ws, { type, room: publicRoom(room), seat, you: s.id });
 }
 
 function broadcastRoom(room) {
-  const info = publicRoom(room);
   room.seats.forEach((s, seat) => {
-    if (s && !s.isBot) send(s.ws, { type: 'room_updated', room: info, seat });
+    if (isConnected(s)) sendRoom(room, s, seat, 'room_updated');
   });
 }
 
-function seatOf(room, clientId) {
-  return room.seats.findIndex((s) => s && !s.isBot && s.clientId === clientId);
+function seatOf(room, ws) {
+  return room.seats.findIndex((s) => s && !s.isBot && s.token === ws.token);
+}
+
+function deleteRoom(room) {
+  if (room.game) room.game.stop();
+  clearTimeout(room.emptyTimer);
+  room.seats.forEach((s) => {
+    if (s) clearTimeout(s.awayTimer);
+    if (isHuman(s)) tokenToRoom.delete(s.token);
+  });
+  rooms.delete(room.code);
+}
+
+/** Pick a connected human as host if the current host is gone; delete rooms nobody is in. */
+function maintainRoom(room) {
+  const connected = room.seats.filter(isConnected);
+  const humans = room.seats.filter(isHuman);
+  if (humans.length === 0) {
+    deleteRoom(room);
+    return false;
+  }
+  const host = room.seats.find((s) => s && s.id === room.hostId);
+  if ((!host || !isConnected(host)) && connected.length > 0) {
+    // Hand over only once the old host is really gone (grace expired or left).
+    if (!host || !isHuman(host) || host.isBot) room.hostId = connected[0].id;
+  }
+  clearTimeout(room.emptyTimer);
+  room.emptyTimer = null;
+  if (connected.length === 0) {
+    room.emptyTimer = setTimeout(() => rooms.has(room.code) && deleteRoom(room), EMPTY_ROOM_MS);
+  }
+  return true;
+}
+
+function gameRunning(room) {
+  return Boolean(room.game && !room.game.engine.gameOver);
 }
 
 function startGame(room) {
@@ -121,6 +164,7 @@ function startGame(room) {
   room.started = true;
   const game = new GameHost({
     rules: room.rules,
+    turnMs: TURN_MS,
     players: room.seats.map((s, seat) => ({
       name: s ? s.name : `Seat ${seat + 1}`,
       isBot: Boolean(s?.isBot),
@@ -128,45 +172,89 @@ function startGame(room) {
     })),
     send: (seat, payload) => {
       const s = room.seats[seat];
-      if (s && !s.isBot) send(s.ws, payload);
+      if (isConnected(s)) send(s.ws, payload);
     },
   });
   room.game = game;
   room.seats.forEach((s, seat) => {
-    if (s && !s.isBot) send(s.ws, { type: 'match_started', room: publicRoom(room), seat });
+    if (isConnected(s)) sendRoom(room, s, seat, 'match_started');
   });
   game.start();
 }
 
-function handleLeave(ws) {
-  const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
-  ws.roomCode = null;
-  if (!room) return;
-  const seat = seatOf(room, ws.clientId);
-  if (seat === -1) return;
+/** Remove a human from their seat for good (explicit leave or grace expired). */
+function vacateSeat(room, seat) {
+  const s = room.seats[seat];
+  if (!s) return;
+  clearTimeout(s.awayTimer);
+  if (isHuman(s)) tokenToRoom.delete(s.token);
 
-  const leaving = room.seats[seat];
-  const humansLeft = room.seats.filter((s, i) => s && !s.isBot && i !== seat).length;
-
-  if (humansLeft === 0) {
-    if (room.game) room.game.stop();
-    rooms.delete(room.code);
-    return;
-  }
-
-  if (room.started && room.game && !room.game.engine.gameOver) {
-    // Keep the match going: a bot takes over the seat.
-    const botName = `${leaving.name} (Bot)`.slice(0, 24);
-    room.seats[seat] = { clientId: `bot_${seat}`, name: botName, isBot: true, ws: null };
+  if (gameRunning(room) && room.game.engine.players[seat].active) {
+    const botName = `${s.name} (Bot)`.slice(0, 24);
+    room.seats[seat] = { id: newId(), token: null, name: botName, isBot: true, away: false, ws: null };
     room.game.setBot(seat, true, botName);
   } else {
     room.seats[seat] = null;
   }
+}
 
-  if (room.hostId === ws.clientId) {
-    room.hostId = room.seats.find((s) => s && !s.isBot).clientId;
+/** Connection dropped: keep the seat for a while so the player can come back. */
+function markAway(room, seat) {
+  const s = room.seats[seat];
+  s.ws = null;
+  s.away = true;
+  if (gameRunning(room)) room.game.setAway(seat, true);
+  clearTimeout(s.awayTimer);
+  s.awayTimer = setTimeout(() => {
+    if (!rooms.has(room.code) || room.seats[seat] !== s || !s.away) return;
+    if (gameRunning(room)) {
+      // A bot plays for them until they return; the seat stays theirs.
+      s.isBot = true;
+      room.game.setBot(seat, true);
+    } else {
+      vacateSeat(room, seat);
+    }
+    if (maintainRoom(room)) broadcastRoom(room);
+  }, RECONNECT_GRACE_MS);
+  if (maintainRoom(room)) broadcastRoom(room);
+}
+
+/** A returning player gets their seat back (and takes over from the bot). */
+function reattach(ws, room, seat) {
+  const s = room.seats[seat];
+  clearTimeout(s.awayTimer);
+  if (s.ws && s.ws !== ws) {
+    send(s.ws, { type: 'session_replaced' });
+    s.ws.roomCode = null;
+  }
+  s.ws = ws;
+  s.away = false;
+  ws.roomCode = room.code;
+  const wasBot = s.isBot;
+  s.isBot = false;
+
+  maintainRoom(room);
+  sendRoom(room, s, seat, 'room_joined');
+  if (room.game && room.started) {
+    if (gameRunning(room)) {
+      room.game.engine.players[seat].away = false;
+      if (wasBot) room.game.setBot(seat, false, s.name); // publishes to everyone
+      else room.game.publish([{ type: 'player_back', seat }]);
+    } else {
+      room.game.sendView(seat);
+    }
   }
   broadcastRoom(room);
+}
+
+function leaveRoom(ws) {
+  const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
+  ws.roomCode = null;
+  if (!room) return;
+  const seat = seatOf(room, ws);
+  if (seat === -1) return;
+  vacateSeat(room, seat);
+  if (maintainRoom(room)) broadcastRoom(room);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,26 +267,46 @@ function broadcastOnlineCount() {
   wss.clients.forEach((c) => c.readyState === 1 && c.send(msg));
 }
 
+function newHumanSeat(ws, name) {
+  return { id: newId(), token: ws.token, name, isBot: false, away: false, ws, awayTimer: null };
+}
+
 const handlers = {
+  // Sent by the client right after connecting. Restores the player's seat if they had one.
+  hello(ws, data) {
+    if (!isValidToken(data.token)) return;
+    ws.token = data.token;
+    const room = rooms.get(tokenToRoom.get(ws.token));
+    if (!room) {
+      send(ws, { type: 'no_room' });
+      return;
+    }
+    const seat = room.seats.findIndex((s) => isHuman(s) && s.token === ws.token);
+    if (seat === -1) {
+      tokenToRoom.delete(ws.token);
+      send(ws, { type: 'no_room' });
+      return;
+    }
+    reattach(ws, room, seat);
+  },
+
   create_room(ws, data) {
-    handleLeave(ws);
+    leaveRoom(ws);
     const room = {
       code: generateRoomCode(),
       roomName: cleanText(data.roomName, 24) || 'Card Arena Room',
-      hostId: ws.clientId,
+      hostId: null,
       rules: sanitizeRules(data.rules),
       started: false,
-      seats: [
-        { clientId: ws.clientId, name: cleanText(data.playerName, 18) || 'Host', isBot: false, ws },
-        null,
-        null,
-        null,
-      ],
+      seats: [newHumanSeat(ws, cleanText(data.playerName, 18) || 'Host'), null, null, null],
       game: null,
+      emptyTimer: null,
     };
+    room.hostId = room.seats[0].id;
     rooms.set(room.code, room);
+    tokenToRoom.set(ws.token, room.code);
     ws.roomCode = room.code;
-    send(ws, { type: 'room_joined', room: publicRoom(room), seat: 0 });
+    sendRoom(room, room.seats[0], 0, 'room_joined');
   },
 
   join_room(ws, data) {
@@ -216,94 +324,106 @@ const handlers = {
       send(ws, { type: 'room_error', message: `Room "${query}" was not found. Check the 6-character code.` });
       return;
     }
-    if (ws.roomCode === room.code) return;
-    handleLeave(ws);
+
+    // Already seated here (e.g. second tab or reconnect): just reattach.
+    const mine = room.seats.findIndex((s) => isHuman(s) && s.token === ws.token);
+    if (mine !== -1) {
+      reattach(ws, room, mine);
+      return;
+    }
+    leaveRoom(ws);
 
     const name = cleanText(data.playerName, 18) || 'Player';
-    // Free seat before the match; during a match, take over a bot seat.
+    // Before the match: any free seat. During a match: a seat a bot is playing
+    // (but not one being kept for a disconnected player).
     let seat = room.started ? -1 : room.seats.findIndex((s) => s === null);
-    if (seat === -1) seat = room.seats.findIndex((s, i) => s && s.isBot && (!room.started || room.game?.engine.players[i].active));
+    if (seat === -1) {
+      seat = room.seats.findIndex(
+        (s, i) => s && s.isBot && !isHuman(s) && (!gameRunning(room) || room.game.engine.players[i].active)
+      );
+    }
     if (seat === -1) {
       send(ws, { type: 'room_error', message: `Room "${room.roomName}" is full.` });
       return;
     }
 
-    room.seats[seat] = { clientId: ws.clientId, name, isBot: false, ws };
+    room.seats[seat] = newHumanSeat(ws, name);
+    tokenToRoom.set(ws.token, room.code);
     ws.roomCode = room.code;
-    send(ws, { type: 'room_joined', room: publicRoom(room), seat });
-
+    maintainRoom(room);
+    sendRoom(room, room.seats[seat], seat, 'room_joined');
     if (room.started && room.game) {
-      room.game.setBot(seat, false, name);
+      if (gameRunning(room)) room.game.setBot(seat, false, name);
+      else room.game.sendView(seat);
     }
     broadcastRoom(room);
   },
 
   leave_room(ws) {
-    handleLeave(ws);
+    leaveRoom(ws);
   },
 
-  toggle_bot(ws, data, room) {
-    if (room.hostId !== ws.clientId || room.started) return;
+  toggle_bot(ws, data, room, seatIdx) {
+    if (room.seats[seatIdx].id !== room.hostId || gameRunning(room)) return;
     const seat = Number(data.seat);
-    if (!Number.isInteger(seat) || seat < 1 || seat > 3) return;
+    if (!Number.isInteger(seat) || seat < 0 || seat > 3 || seat === seatIdx) return;
     const s = room.seats[seat];
     if (s === null) {
-      room.seats[seat] = { clientId: `bot_${seat}`, name: BOT_NAMES[seat], isBot: true, ws: null };
-    } else if (s.isBot) {
+      room.seats[seat] = { id: newId(), token: null, name: BOT_NAMES[seat], isBot: true, away: false, ws: null };
+    } else if (s.isBot && !isHuman(s)) {
       room.seats[seat] = null;
     }
     broadcastRoom(room);
   },
 
-  update_rules(ws, data, room) {
-    if (room.hostId !== ws.clientId) return;
+  update_rules(ws, data, room, seatIdx) {
+    if (room.seats[seatIdx].id !== room.hostId) return;
     room.rules = sanitizeRules(data.rules); // takes effect next match
     broadcastRoom(room);
   },
 
-  start_match(ws, data, room) {
-    if (room.hostId !== ws.clientId) return;
-    if (room.game && !room.game.engine.gameOver) return; // already running
+  start_match(ws, data, room, seatIdx) {
+    if (room.seats[seatIdx].id !== room.hostId) return;
+    if (gameRunning(room)) return;
+    // Seats kept for players who never came back are released before a new match.
+    room.seats.forEach((s, i) => {
+      if (isHuman(s) && s.isBot) vacateSeat(room, i);
+    });
     if (room.seats.filter(Boolean).length < 2) {
-      send(ws, {
-        type: 'room_error',
-        message: 'At least 2 players are needed. Wait for a friend or add a bot to an empty seat.',
-      });
+      send(ws, { type: 'room_error', message: 'At least 2 players are needed. Wait for a friend or add a bot to an empty seat.' });
       return;
     }
     startGame(room);
   },
 
-  action(ws, data, room) {
+  action(ws, data, room, seatIdx) {
     if (!room.game) return;
-    const seat = seatOf(room, ws.clientId); // never trust a seat number from the client
-    if (seat === -1) return;
     const action = {
       type: cleanText(data.action?.type, 12),
       cardId: Number(data.action?.cardId),
       color: cleanText(data.action?.color, 8),
     };
-    room.game.handle(seat, action);
+    room.game.handle(seatIdx, action); // seat comes from the server, never the client
   },
 
-  emote(ws, data, room) {
-    const seat = seatOf(room, ws.clientId);
-    if (seat === -1) return;
+  emote(ws, data, room, seatIdx) {
     const now = Date.now();
     if (now - (ws.lastEmoteAt || 0) < 600) return;
     ws.lastEmoteAt = now;
-    const payload = { type: 'room_emote', seat, playerName: room.seats[seat].name, emote: cleanText(data.emote, 8) };
-    room.seats.forEach((s) => s && !s.isBot && send(s.ws, payload));
+    const payload = { type: 'room_emote', seat: seatIdx, playerName: room.seats[seatIdx].name, emote: cleanText(data.emote, 8) };
+    room.seats.forEach((s) => isConnected(s) && send(s.ws, payload));
   },
 };
 
+const NO_ROOM_NEEDED = new Set(['hello', 'create_room', 'join_room', 'leave_room']);
+
 wss.on('connection', (ws) => {
-  ws.clientId = `p_${Math.random().toString(36).slice(2, 12)}`;
+  ws.token = `anon_${crypto.randomBytes(12).toString('hex')}`; // replaced by hello
   ws.roomCode = null;
   ws.msgWindowStart = Date.now();
   ws.msgCount = 0;
 
-  send(ws, { type: 'welcome', clientId: ws.clientId, onlineCount: wss.clients.size });
+  send(ws, { type: 'welcome', onlineCount: wss.clients.size });
   broadcastOnlineCount();
 
   ws.on('message', (raw) => {
@@ -323,21 +443,27 @@ wss.on('connection', (ws) => {
     }
     const handler = handlers[data?.type];
     if (!handler) return;
-    if (data.type === 'create_room' || data.type === 'join_room') {
-      handler(ws, data);
-      return;
-    }
-    const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
-    if (!room) return;
     try {
-      handler(ws, data, room);
+      if (NO_ROOM_NEEDED.has(data.type)) {
+        handler(ws, data);
+        return;
+      }
+      const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
+      if (!room) return;
+      const seatIdx = seatOf(room, ws);
+      if (seatIdx === -1) return;
+      handler(ws, data, room, seatIdx);
     } catch (err) {
       console.error('Handler error', data.type, err);
     }
   });
 
   ws.on('close', () => {
-    handleLeave(ws);
+    const room = ws.roomCode ? rooms.get(ws.roomCode) : null;
+    if (room) {
+      const seat = room.seats.findIndex((s) => isHuman(s) && s.ws === ws);
+      if (seat !== -1) markAway(room, seat);
+    }
     broadcastOnlineCount();
   });
 });

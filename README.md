@@ -15,7 +15,9 @@ Set `PORT` to use another port.
 
 ```bash
 npm test                                   # rules engine unit tests
-node tests/multiplayer.check.mjs 4173      # two-player check against a running server
+RECONNECT_GRACE_MS=1500 TURN_MS=2500 PORT=4199 node server.js   # short timers for the checks
+node tests/multiplayer.check.mjs 4199
+node tests/reconnect.check.mjs 4199
 ```
 
 ## How it works

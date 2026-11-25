@@ -256,9 +256,18 @@ export function getCardFaceTexture(color, value) {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = 16;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
   textureCache.set(key, texture);
   return texture;
+}
+
+export function getCardFaceDataUrl(color, value) {
+  const tex = getCardFaceTexture(color, value);
+  return tex.image.toDataURL('image/png');
 }
 
 export function getCardBackTexture() {
