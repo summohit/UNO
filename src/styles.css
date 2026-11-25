@@ -3601,3 +3601,221 @@ dialog.card-preview-modal {
     display: none;
   }
 }
+
+/* Non-playable cards in the All Cards sheet stay tappable (they explain why) */
+.hand-grid-card:not(.playable) {
+  cursor: help;
+}
+
+/* Canvas taps: no double-tap zoom or text selection on phones */
+#uno-canvas {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- Phone layout: compact bottom dock ---- */
+@media (max-width: 480px) {
+  .hud-bottom {
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+
+  .turn-banner {
+    max-width: 100%;
+    padding: 0.36rem 0.9rem;
+    font-size: 0.78rem;
+    text-align: center;
+  }
+
+  .bottom-controls.unified-dock {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+    padding: 8px;
+  }
+
+  .unified-dock .draw-btn,
+  .unified-dock .sort-btn {
+    justify-content: center;
+    min-width: 0;
+    min-height: 44px; /* comfortable thumb target */
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .unified-dock #seat-0 {
+    grid-column: 1 / 2;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .unified-dock #seat-0 .seat-name {
+    font-size: 0.72rem;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .unified-dock #seat-0 .human-card-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .unified-dock .emote-bar {
+    grid-column: 2 / 4;
+    justify-content: space-between;
+    padding: 2px 4px;
+  }
+
+  .unified-dock .emote-btn {
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
+  }
+
+  .unified-dock .uno-shout-btn {
+    grid-column: 1 / -1;
+    min-height: 48px;
+  }
+
+  #camera-switch-btn {
+    bottom: 186px;
+  }
+}
+
+@media (max-width: 340px) {
+  /* Very small phones: icons carry the meaning */
+  .unified-dock .sort-btn span {
+    display: none;
+  }
+  .unified-dock .emote-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  /* The card thumbnail already shows the colour */
+  .table-status-pill .color-orb {
+    display: none;
+  }
+  .table-status-pill .state-label {
+    font-size: 0.74rem;
+    letter-spacing: 0;
+  }
+}
+
+/* Centre the home card, but never cut off its top when the screen is short */
+.home-screen {
+  justify-content: safe center;
+}
+
+/* ---- Phones held sideways (short landscape screens) ---- */
+@media (max-height: 500px) and (orientation: landscape) {
+  .home-screen {
+    justify-content: flex-start;
+    padding-top: 6.5rem;
+  }
+
+  .hud-top {
+    padding-block: 4px;
+  }
+
+  .level-pill #top-level-text,
+  .level-pill .pill-caret,
+  .hud-uno-badge {
+    display: none;
+  }
+
+  .hud-bottom {
+    bottom: max(4px, env(safe-area-inset-bottom));
+    gap: 4px;
+  }
+
+  .turn-banner {
+    padding: 0.25rem 0.8rem;
+    font-size: 0.72rem;
+  }
+
+  .bottom-controls.unified-dock {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  .unified-dock .draw-btn,
+  .unified-dock .sort-btn {
+    min-height: 36px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .unified-dock #seat-0 {
+    min-height: 36px;
+    padding: 2px 10px;
+  }
+
+  /* Emotes and the play feed take too much room here */
+  .unified-dock .emote-bar,
+  .match-feed-box {
+    display: none;
+  }
+
+  #camera-switch-btn {
+    top: 56px;
+    bottom: auto;
+    right: 10px;
+  }
+
+  .catch-uno-btn {
+    top: 52px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Out of the way of the hand: top right, under the top bar */
+  #camera-switch-btn {
+    top: 64px;
+    bottom: auto;
+    right: 10px;
+  }
+
+  .unified-dock #seat-0 .seat-meta {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .unified-dock #seat-0 .seat-cards {
+    font-size: 0.68rem;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 360px) {
+  /* Room for the active colour + value during play */
+  body:not(.home-active) .coins-pill {
+    display: none;
+  }
+
+  #camera-switch-btn #camera-view-label {
+    display: none;
+  }
+}
+
+/* Medium screens: the bottom dock is wide enough to reach the corner, so lift the play feed above it */
+@media (min-width: 481px) and (max-width: 1280px) and (min-height: 501px) {
+  .match-feed-box {
+    bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 84px);
+    width: min(15rem, 32vw);
+  }
+}

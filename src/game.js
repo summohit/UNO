@@ -655,6 +655,8 @@ export class Uno3DGame {
         let targetScale = 1.08;
         // Phones in portrait: smaller fan for your hand, opponents pulled in so they stay on screen.
         const compact = window.innerWidth / window.innerHeight < 0.75;
+        // Phones held sideways: little height, so a smaller hand placed higher up.
+        const shortLandscape = !compact && window.innerHeight < 500;
         const sideX = compact ? 2.35 : 3.45;
         const farZ = compact ? -3.0 : -3.45;
 
@@ -664,11 +666,11 @@ export class Uno3DGame {
             : Math.min(0.86, 5.4 / Math.max(count, 1));
           const arch = Math.abs(offset) * (compact ? 0.04 : 0.058);
           const playable = isMyTurn && entry.color && this.canPlay(entry);
-          targetScale = compact ? 1.02 : 1.32;
+          targetScale = compact ? 1.02 : shortLandscape ? 1.0 : 1.32;
           targetPos.set(
             offset * maxSpread,
-            (compact ? 1.62 : 1.78) - arch + (playable ? 0.28 : 0),
-            (compact ? 4.35 : 4.55) + arch * 0.35 + i * 0.02 + (playable ? -0.18 : 0)
+            (compact ? 1.62 : shortLandscape ? 1.72 : 1.78) - arch + (playable ? 0.28 : 0),
+            (compact ? 4.35 : shortLandscape ? 3.95 : 4.55) + arch * 0.35 + i * 0.02 + (playable ? -0.18 : 0)
           );
           targetRot.set(-0.62, 0, -offset * (compact ? 0.045 : 0.058));
         } else {

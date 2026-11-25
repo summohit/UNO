@@ -912,7 +912,10 @@ uiCallbacks.showCardPlayedBanner = (playerName, card, activeColor, isMe) => {
 };
 
 // Hover preview disabled per user preference; direct tap/click plays cards cleanly
-canvas.addEventListener('pointerdown', (e) => {
+// Use 'click' (fires once the tap is finished), not 'pointerdown': on phones a
+// dialog opened on pointerdown gets the tap's own click on its backdrop and
+// closes straight away, so the card preview seemed to do nothing.
+canvas.addEventListener('click', (e) => {
   game.handleHumanTap(e.clientX, e.clientY);
 });
 
@@ -998,6 +1001,7 @@ function openAllCardsModal() {
   const cards = game.getLocalHandCards();
   allCardsCountLabel.textContent = `YOUR FULL HAND • ${cards.length} ${cards.length === 1 ? 'CARD' : 'CARDS'}`;
   const playableCount = cards.filter((c) => c.playable).length;
+  allCardsHint.classList.remove('warn');
   allCardsHint.textContent =
     playableCount > 0
       ? `${playableCount} ${playableCount === 1 ? 'card is' : 'cards are'} playable right now — tap any green-highlighted card to play it!`
@@ -1008,7 +1012,7 @@ function openAllCardsModal() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `hand-grid-card ${card.playable ? 'playable' : ''}`;
-    btn.disabled = !card.playable;
+    btn.setAttribute('aria-disabled', String(!card.playable));
 
     const img = document.createElement('img');
     img.src = getCardFaceDataUrl(card.color, card.value);
@@ -1019,12 +1023,28 @@ function openAllCardsModal() {
     tag.textContent = card.playable ? '✓ Tap to Play' : formatCardFullName(card, card.color);
 
     btn.append(img, tag);
-    if (card.playable) {
-      btn.addEventListener('click', () => {
+    btn.addEventListener('click', () => {
+      if (card.playable) {
         allCardsDialog.close();
         game.playCardByIdFromModal(card.id);
-      });
-    }
+        return;
+      }
+      // Explain instead of silently ignoring the tap.
+      const v = game.view;
+      allCardsHint.textContent = !v || v.gameOver
+        ? 'The match is over.'
+        : v.currentPlayer !== game.localSeat
+          ? "It's not your turn yet — you can play when your turn comes."
+          : v.pendingDrawStack > 0
+            ? `${formatCardFullName(card, card.color)} can't answer the stack. Stack a draw card or tap Draw (+${v.pendingDrawStack}).`
+            : `${formatCardFullName(card, card.color)} doesn't match the colour or symbol on the table.`;
+      allCardsHint.classList.add('warn');
+      btn.animate(
+        [{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+        { duration: 220 }
+      );
+      sound.vibrate?.(20);
+    });
     allCardsGrid.appendChild(btn);
   });
 
