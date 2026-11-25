@@ -58,7 +58,8 @@ function closeDrawer() {
   drawerScroller.scrollTo({ left: drawerScroller.offsetWidth, behavior: 'auto' });
 }
 
-const visibleThreshold = 1 / window.innerWidth;
+// innerWidth can be 0 while a tab loads in the background; keep the threshold finite.
+const visibleThreshold = 1 / Math.max(window.innerWidth, 1);
 const drawerObserver = new IntersectionObserver(
   (entries) => {
     const entry = entries.at(-1);
@@ -228,11 +229,13 @@ const uiCallbacks = {
     }
   },
 
-  openVictoryModal(winner, score, isLocalWinner, campaignLevel) {
+  openVictoryModal(winner, score, isLocalWinner, campaignLevel, isMultiplayer = false) {
     const lvlInfo =
       CAMPAIGN_LEVELS.find((l) => l.level === campaignLevel) ||
       CAMPAIGN_LEVELS[0];
-    if (isLocalWinner) {
+    // Campaign rewards are for solo games only.
+    const earnsReward = isLocalWinner && !isMultiplayer;
+    if (earnsReward) {
       playerProfile.coins += lvlInfo.rewardCoins;
       playerProfile.xp += lvlInfo.rewardXp;
       playerProfile.level = Math.max(
@@ -247,9 +250,11 @@ const uiCallbacks = {
       ? '🏆 Victory in 3D Arena!'
       : `${winner.rawName || winner.name} Wins!`;
     victorySubtitle.textContent = isLocalWinner
-      ? `You conquered ${lvlInfo.title}!`
+      ? isMultiplayer
+        ? 'You emptied your hand first!'
+        : `You conquered ${lvlInfo.title}!`
       : `${winner.rawName || winner.name} emptied their hand first. Ready for a rematch?`;
-    victoryScore.textContent = isLocalWinner
+    victoryScore.textContent = earnsReward
       ? `+${score} PTS • +${lvlInfo.rewardCoins} 🪙`
       : `+${score} PTS`;
     victoryDialog.returnValue = '';
@@ -294,8 +299,13 @@ const uiCallbacks = {
       const unoEl = document.getElementById(`uno-${vp.visualSlot}`);
 
       if (seatEl) {
+        const isPlayingMatch = !state.waitingForAdminStart && !game.gameOver;
         seatEl.classList.toggle('active-turn', vp.isTurn);
         seatEl.classList.toggle('vacant-seat', vp.isVacant);
+        seatEl.classList.toggle(
+          'blurred-inactive',
+          isPlayingMatch && !vp.isTurn && !vp.isVacant
+        );
       }
       if (nameEl) {
         nameEl.textContent = vp.isVacant ? 'VACANT SEAT' : vp.name;
@@ -350,9 +360,16 @@ function showSeatReaction(visualSlot, emoji, label = '') {
   const seatEl = document.getElementById(`seat-${visualSlot}`);
   if (!bubble) return;
 
-  bubble.innerHTML = label
-    ? `<span>${emoji}</span><span class="rx-label">${label}</span>`
-    : `<span>${emoji}</span>`;
+  // Built with textContent: labels can contain player names.
+  const emojiSpan = document.createElement('span');
+  emojiSpan.textContent = emoji;
+  bubble.replaceChildren(emojiSpan);
+  if (label) {
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'rx-label';
+    labelSpan.textContent = label;
+    bubble.append(labelSpan);
+  }
   bubble.classList.add('show');
   spawnFloatingEmojis(seatEl, emoji);
 
@@ -401,9 +418,9 @@ function syncProfileUI() {
 function showHomeScreen() {
   if (network.isInRoom()) network.leaveRoom();
   tableWaitingOverlay.hidden = true;
+  game.stopLocalGame();
+  game.view = null;
   game.clearBoardMeshes();
-  game.gameOver = true;
-  game.isBusy = true;
   game.waitingForAdminStart = false;
   uiCallbacks.hideUnoShoutButton();
   uiCallbacks.showBanner('Choose a game mode to begin', 'neutral');
@@ -512,9 +529,20 @@ function renderWaitingRoomOverlay(room, localSeat) {
   document.getElementById('drawer-mp-subtext').textContent =
     `Room "${room.roomName}" (${room.code}) • ${occupiedCount}/4 Players`;
 
-  overlayWaitingStatus.innerHTML = isAdmin
-    ? `You are the <strong>Room Admin</strong>. Other seats are <strong>VACANT</strong> waiting for players to join with code <strong>${room.code}</strong> (or room name <strong>${room.roomName}</strong>). Game will not start until you click Start Game!`
-    : `Joined Room <strong>${room.roomName}</strong>! Waiting for Room Admin to start the match...`;
+  // Built from text nodes: the room name comes from another player.
+  const strong = (t) => {
+    const el = document.createElement('strong');
+    el.textContent = t;
+    return el;
+  };
+  overlayWaitingStatus.replaceChildren(
+    ...(isAdmin
+      ? [
+          'You are the ', strong('Room Admin'), '. Empty seats wait for players to join with code ',
+          strong(room.code), '. The game starts when you click Start Game.',
+        ]
+      : ['Joined room ', strong(room.roomName), '. Waiting for the room host to start the match...'])
+  );
 
   overlaySeatList.innerHTML = '';
   for (let s = 0; s < 4; s++) {
@@ -564,10 +592,14 @@ function renderWaitingRoomOverlay(room, localSeat) {
 }
 
 const network = new MultiplayerClient({
-  onConnectionChange(connected) {
+  onConnectionChange(connected, wasInRoom) {
     if (onlineDot) onlineDot.classList.toggle('live', connected);
     if (!connected && onlineText) {
       onlineText.textContent = 'Offline • Solo Ready';
+    }
+    if (!connected && wasInRoom) {
+      showHomeScreen();
+      uiCallbacks.showBanner('Lost connection to the game server.', 'red');
     }
   },
 
@@ -578,19 +610,18 @@ const network = new MultiplayerClient({
     }
   },
 
-  onRoomJoined(room, localSeat, lastState) {
+  onRoomJoined(room, localSeat) {
     hideHomeScreen();
     if (mpDialog.open) mpDialog.close();
     if (!room.started) {
-      // Do NOT start the game! Enter Vacant Seat Waiting Lobby until Admin starts!
+      // Wait in the lobby until the host starts the match.
       game.enterRoomWaitingState(room, localSeat);
       renderWaitingRoomOverlay(room, localSeat);
     } else {
+      // Joined a running match: the server sends the current table next.
       tableWaitingOverlay.hidden = true;
-      game.configureRosterFromRoom(room, localSeat);
-      if (lastState && !network.isHost()) {
-        game.applyRemoteStateSnapshot(lastState, null);
-      }
+      game.stopLocalGame();
+      game.prepareForMatch(localSeat);
     }
   },
 
@@ -601,9 +632,6 @@ const network = new MultiplayerClient({
     } else {
       tableWaitingOverlay.hidden = true;
       game.configureRosterFromRoom(room, localSeat);
-      if (network.isHost()) {
-        game.broadcastSnapshot({ type: 'roster_updated' });
-      }
     }
   },
 
@@ -618,19 +646,19 @@ const network = new MultiplayerClient({
     hideHomeScreen();
     tableWaitingOverlay.hidden = true;
     if (mpDialog.open) mpDialog.close();
+    if (victoryDialog.open) victoryDialog.close();
+    game.stopLocalGame();
+    game.prepareForMatch(localSeat);
     game.configureRosterFromRoom(room, localSeat);
-    if (network.isHost()) {
-      game.startNewMatch();
-    }
   },
 
-  onGameStateSync(state, event) {
+  onGameUpdate(payload) {
     tableWaitingOverlay.hidden = true;
-    game.applyRemoteStateSnapshot(state, event);
+    game.onGameUpdate(payload);
   },
 
-  onRemotePlayerAction(seat, action) {
-    game.handleRemotePlayerAction(seat, action);
+  onActionError(error) {
+    game.onActionError(error);
   },
 
   onRoomEmote(seat, playerName, emote) {
@@ -851,7 +879,7 @@ houseRulesForm.addEventListener('submit', (e) => {
 
   game.setRules(newRules);
   if (network.isInRoom() && network.isHost()) {
-    network.updateRules(newRules);
+    network.updateRules(game.rules); // applies from the next match
   }
   rulesDialog.close();
   if (!network.isInRoom() && homeScreen.hidden) {
@@ -868,7 +896,7 @@ document.getElementById('create-room-form').addEventListener('submit', (e) => {
   const playerName =
     document.getElementById('create-player-name').value.trim() ||
     playerProfile.displayName;
-  network.createRoom(roomName, playerName, '', game.rules);
+  network.createRoom(roomName, playerName, game.rules);
 });
 
 const joinCodeInput = document.getElementById('join-room-code');
@@ -891,7 +919,7 @@ document.getElementById('join-room-form').addEventListener('submit', (e) => {
   const playerName =
     document.getElementById('join-player-name').value.trim() ||
     playerProfile.displayName;
-  network.joinRoom(query, playerName, '');
+  network.joinRoom(query, playerName);
 });
 
 // Waiting Overlay Actions (Copy Code, Copy Link, Admin Start Game, Leave Room)
@@ -917,7 +945,7 @@ document.getElementById('overlay-copy-link-btn').addEventListener('click', async
 });
 
 overlayAdminStartBtn.addEventListener('click', () => {
-  network.requestAdminStartMatch();
+  network.requestStartMatch();
 });
 
 document.getElementById('overlay-leave-room-btn').addEventListener('click', () => {
@@ -953,7 +981,7 @@ document.querySelectorAll('.emote-btn').forEach((btn) => {
     const myName = game.players[game.localSeat]?.rawName || playerProfile.displayName;
     sound.playCardSwoosh();
     if (network.isInRoom()) {
-      network.sendEmote(myName, emote);
+      network.sendEmote(emote);
     } else {
       showSeatReaction(0, emote);
       // Let a random active AI bot reply with a fun emoji reaction!
@@ -980,7 +1008,7 @@ document.querySelectorAll('.emote-btn').forEach((btn) => {
     if (!targetPlayer || targetPlayer.isVacant) return;
     const myName = game.players[game.localSeat]?.rawName || playerProfile.displayName;
     if (network.isInRoom()) {
-      network.sendEmote(myName, '👋');
+      network.sendEmote('👋');
     } else {
       showSeatReaction(0, '👋');
       setTimeout(() => showSeatReaction(slot, '😎'), 420);
