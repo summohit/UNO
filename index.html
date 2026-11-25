@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#060913" />
+    <title>UNO 3D Arena — Multiplayer &amp; Campaign Edition</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,500;0,600;0,700;0,800;1,800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.js",
+          "gsap": "./node_modules/gsap/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!-- Slide-Out Hamburger Navigation Drawer (modern-web-guidance navigation-drawer spec) -->
+    <dialog class="Drawer" id="nav-drawer" aria-label="Game Navigation Menu">
+      <div class="Drawer-scroller">
+        <nav class="Drawer-sheet" aria-label="Main Game Controls">
+          <div class="drawer-header">
+            <div class="brand-chip">
+              <span class="brand-logo">UNO</span>
+              <span class="brand-tag">3D ARENA</span>
+            </div>
+            <button
+              type="button"
+              id="drawer-close"
+              class="icon-btn"
+              aria-label="Close menu"
+              autofocus
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="drawer-menu-list">
+            <span class="drawer-section-label">PLAY &amp; MULTIPLAYER</span>
+
+            <button type="button" class="drawer-nav-item" id="menu-home-btn">
+              <span class="nav-item-icon">🏠</span>
+              <div class="nav-item-text">
+                <strong>Main Menu</strong>
+                <span>Play with bots, create or join a room</span>
+              </div>
+            </button>
+
+            <button type="button" class="drawer-nav-item" id="menu-multiplayer-btn">
+              <span class="nav-item-icon">🌐</span>
+              <div class="nav-item-text">
+                <strong>Multiplayer Rooms</strong>
+                <span id="drawer-mp-subtext">Create room or join by code</span>
+              </div>
+            </button>
+
+            <button type="button" class="drawer-nav-item" id="menu-campaign-btn">
+              <span class="nav-item-icon">🏆</span>
+              <div class="nav-item-text">
+                <strong>Multi-Level Campaign (5 Arenas)</strong>
+                <span id="drawer-level-subtext">Level 2: Cyber Neon Club</span>
+              </div>
+            </button>
+
+            <button type="button" class="drawer-nav-item" id="menu-rules-btn">
+              <span class="nav-item-icon">📜</span>
+              <div class="nav-item-text">
+                <strong>Complete UNO Rules &amp; House Rules</strong>
+                <span id="drawer-rules-subtext">Stacking, 7-0 Swap, Jump-In &amp; Guide</span>
+              </div>
+            </button>
+
+            <button type="button" class="drawer-nav-item" id="menu-new-deal-btn">
+              <span class="nav-item-icon">🃏</span>
+              <div class="nav-item-text">
+                <strong>New Solo Deal vs 3D Bots</strong>
+                <span>Start an instant practice match</span>
+              </div>
+            </button>
+
+            <span class="drawer-section-label">AUDIO &amp; HAPTICS</span>
+
+            <button type="button" class="drawer-nav-item" id="menu-sound-btn">
+              <span class="nav-item-icon" id="drawer-sound-icon">🔊</span>
+              <div class="nav-item-text">
+                <strong id="drawer-sound-title">Sound &amp; Haptics: ON</strong>
+                <span>Toggle 3D audio synth &amp; vibration</span>
+              </div>
+            </button>
+          </div>
+        </nav>
+      </div>
+    </dialog>
+
+    <div id="app-shell" data-arena-level="2">
+      <!-- Cosmic Nebula & Floating Blurred UNO Cards Backdrop (Visible behind transparent 3D WebGL canvas) -->
+      <div class="arena-bg-layer" aria-hidden="true">
+        <span class="arena-nebula neb-1"></span>
+        <span class="arena-nebula neb-2"></span>
+        <span class="arena-nebula neb-3"></span>
+        <span class="bg-float-card bg-c1"><i>UNO</i></span>
+        <span class="bg-float-card bg-c2 bg-wild"></span>
+        <span class="bg-float-card bg-c3 bg-wild"></span>
+        <span class="bg-float-card bg-c4"><i>UNO</i></span>
+        <span class="bg-float-card bg-c5 bg-wild"></span>
+        <span class="bg-float-card bg-c6"><i>UNO</i></span>
+      </div>
+
+      <canvas id="uno-canvas" aria-label="3D UNO Tabletop Arena"></canvas>
+
+      <!-- Top Bar Matching Mockup: Hamburger Circle, UNO Badge, Level Pill, Active Card Pill, Coins & Avatar -->
+      <header class="hud-top">
+        <div class="top-left-cluster">
+          <button
+            type="button"
+            id="drawer-open"
+            class="hamburger-btn circle-menu-btn"
+            aria-label="Open game menu"
+            aria-expanded="false"
+            aria-controls="nav-drawer"
+          >
+            <span class="hamburger-bars" aria-hidden="true">☰</span>
+          </button>
+
+          <span class="uno-badge hud-uno-badge" aria-hidden="true">UNO</span>
+
+          <button
+            type="button"
+            class="level-pill"
+            id="top-level-pill"
+            title="Switch Arena Level"
+          >
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#facc15" d="M6 3h12v3h3v2.5c0 2.6-1.8 4.7-4.3 5.2-.7 1.4-2 2.4-3.7 2.7V19h3.5v2h-9v-2H11v-2.6c-1.7-.3-3-1.3-3.7-2.7C4.8 13.2 3 11.1 3 8.5V6h3V3Zm-1 5v.5c0 1.4.8 2.5 2 3V8H5Zm14 0h-2v3.5c1.2-.5 2-1.6 2-3V8Z" />
+            </svg>
+            <span id="top-level-text">Level 2: Cyber Neon Club</span>
+            <span class="pill-caret" aria-hidden="true">▾</span>
+          </button>
+        </div>
+
+        <div class="table-status-pill" id="active-state-pill">
+          <span class="color-orb" id="active-color-orb"></span>
+          <span class="state-label" id="active-state-text">RED • 0</span>
+          <span class="stack-badge" id="stack-badge" hidden>STACK +2</span>
+          <span class="dir-badge" id="direction-badge" title="Play direction">👑 CW</span>
+        </div>
+
+        <div class="top-right-cluster">
+          <div class="coins-pill" id="top-coins-pill" title="Arena Coins">
+            <span class="coin-orb" aria-hidden="true">🪙</span>
+            <span id="top-coins-text">500</span>
+          </div>
+
+          <button
+            type="button"
+            class="hud-avatar-pill"
+            id="hud-avatar-btn"
+            aria-label="Open menu"
+            title="Open Menu"
+          >
+            <span class="hud-avatar-circle" id="hud-avatar-letter">P</span>
+            <span class="pill-caret" aria-hidden="true">▾</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Home Screen: shown on page load and whenever no game is running -->
+      <section id="home-screen" class="home-screen" aria-labelledby="home-title">
+        <!-- Ambient glows & floating cards (decorative) -->
+        <div class="home-ambient" aria-hidden="true">
+          <span class="glow glow-purple"></span>
+          <span class="glow glow-blue"></span>
+          <span class="glow glow-orange"></span>
+          <span class="orbit-ring"></span>
+          <span class="float-card fc-red"><b>1</b></span>
+          <span class="float-card fc-yellow"><b>⇄</b></span>
+          <span class="float-card fc-blue"><b>7</b></span>
+          <span class="float-card fc-wild"></span>
+        </div>
+
+        <!-- Home top bar -->
+        <div class="home-topbar">
+          <div class="home-brand">
+            <span class="uno-badge">UNO</span>
+            <span class="home-brand-divider" aria-hidden="true"></span>
+            <span class="home-brand-text">3D ARENA</span>
+          </div>
+          <div class="home-topbar-right">
+            <span class="online-pill" id="online-pill">
+              <span class="online-dot" id="online-dot"></span>
+              <span id="online-text">Connecting…</span>
+            </span>
+            <button
+              type="button"
+              class="home-avatar"
+              id="home-avatar"
+              aria-label="Open game menu"
+              title="Open Menu (Rules, Levels, Settings)"
+            >
+              P
+            </button>
+          </div>
+        </div>
+
+        <div class="home-card">
+          <div class="home-logo-wrap" aria-hidden="true">
+            <div class="logo-fan">
+              <span class="fan-card fan-blue">2</span>
+              <span class="fan-card fan-green">3</span>
+              <span class="fan-card fan-yellow">4</span>
+              <span class="fan-card fan-red">5</span>
+            </div>
+            <div class="home-logo">UNO</div>
+            <span class="logo-spark spark-left"></span>
+            <span class="logo-spark spark-right"></span>
+          </div>
+
+          <h1 id="home-title" class="home-title">3D Arena</h1>
+          <button type="button" class="arena-chip" id="home-arena-btn" title="Change Arena Level">
+            <svg class="ui-svg-icon sm" viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="gpGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f8fafc" />
+                  <stop offset="100%" stop-color="#cbd5e1" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#gpGrad)" d="M6.5 7h11a4.5 4.5 0 0 1 4.4 5.45l-.95 4.3A2.75 2.75 0 0 1 18.27 19a2.5 2.5 0 0 1-2.06-1.08L14.9 16H9.1l-1.31 1.92A2.5 2.5 0 0 1 5.73 19a2.75 2.75 0 0 1-2.68-2.25l-.95-4.3A4.5 4.5 0 0 1 6.5 7Z" />
+              <path fill="#1e293b" d="M7 10.5h1.5V12H10v1.5H8.5V15H7v-1.5H5.5V12H7v-1.5Z" />
+              <circle cx="16" cy="11.5" r="1.05" fill="#38bdf8" />
+              <circle cx="18" cy="13.5" r="1.05" fill="#f43f5e" />
+            </svg>
+            <span id="home-arena-line">Arena: <em>Level 2</em> • <em>Cyber Neon Club</em></span>
+          </button>
+
+          <form id="home-form" class="home-form" aria-labelledby="home-title">
+            <div class="home-field">
+              <label for="home-player-name">
+                <svg class="ui-svg-icon sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="usrMain" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#ffffff" />
+                      <stop offset="100%" stop-color="#dbeafe" />
+                    </linearGradient>
+                    <linearGradient id="usrAccent" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stop-color="#ff4d6d" />
+                      <stop offset="100%" stop-color="#e11d48" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Crimson back user silhouette -->
+                  <circle cx="16.2" cy="9.2" r="2.8" fill="url(#usrAccent)" />
+                  <path fill="url(#usrAccent)" d="M14.2 13.2c.6-.2 1.3-.3 2-.3 2.7 0 4.8 1.5 5 3.6.1.9-.6 1.5-1.5 1.5h-4.1c-.2-1.8-.8-3.5-1.4-4.8Z" />
+                  <!-- Glossy white foreground user silhouette -->
+                  <circle cx="9.6" cy="7.8" r="3.8" fill="url(#usrMain)" />
+                  <path fill="url(#usrMain)" d="M9.6 13c-3.9 0-6.6 2-6.6 4.7 0 .9.7 1.6 1.6 1.6h10c.9 0 1.6-.7 1.6-1.6 0-2.7-2.7-4.7-6.6-4.7Z" />
+                </svg>
+                Your Name (2–18 characters) <span aria-hidden="true">*</span>
+              </label>
+              <div class="home-input-wrap">
+                <input
+                  type="text"
+                  id="home-player-name"
+                  name="playerName"
+                  required
+                  minlength="2"
+                  maxlength="18"
+                  placeholder="Enter your display name…"
+                  autocomplete="nickname"
+                  autocorrect="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  enterkeyhint="done"
+                />
+                <span class="input-edit-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
+                    <path d="M14.85 2.85a2.1 2.1 0 0 1 2.97 2.97L7.5 16.14l-4.1 1.13 1.13-4.1L14.85 2.85Z" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div class="home-mode-grid">
+              <button type="submit" name="mode" value="bots" class="home-mode-btn mode-bots">
+                <span class="mode-icon mode-icon-svg" aria-hidden="true">
+                  <!-- 3D Glossy Cute Robot Head SVG -->
+                  <svg viewBox="0 0 88 88" class="card-3d-svg">
+                    <defs>
+                      <radialGradient id="botBgHalo" cx="50%" cy="52%" r="48%">
+                        <stop offset="0%" stop-color="#047857" stop-opacity="0.45" />
+                        <stop offset="100%" stop-color="#047857" stop-opacity="0" />
+                      </radialGradient>
+                      <linearGradient id="botShell" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#ffffff" />
+                        <stop offset="58%" stop-color="#e0e7ff" />
+                        <stop offset="100%" stop-color="#a5b4fc" />
+                      </linearGradient>
+                      <linearGradient id="botEar" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#ffffff" />
+                        <stop offset="100%" stop-color="#93c5fd" />
+                      </linearGradient>
+                      <radialGradient id="antBall" cx="35%" cy="30%" r="65%">
+                        <stop offset="0%" stop-color="#fef08a" />
+                        <stop offset="55%" stop-color="#facc15" />
+                        <stop offset="100%" stop-color="#ea580c" />
+                      </radialGradient>
+                      <linearGradient id="botVisor" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#0f172a" />
+                        <stop offset="100%" stop-color="#020617" />
+                      </linearGradient>
+                      <radialGradient id="botEye" cx="42%" cy="40%" r="55%">
+                        <stop offset="0%" stop-color="#ffffff" />
+                        <stop offset="45%" stop-color="#38f8ff" />
+                        <stop offset="100%" stop-color="#0ea5e9" />
+                      </radialGradient>
+                      <filter id="cyanGlow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feGaussianBlur stdDeviation="2.2" result="b" />
+                        <feMerge>
+                          <feMergeNode in="b" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                      <filter id="softDrop" x="-20%" y="-20%" width="140%" height="150%">
+                        <feDropShadow dx="0" dy="5" stdDeviation="3.5" flood-color="#022c22" flood-opacity="0.38" />
+                      </filter>
+                    </defs>
+                    <circle cx="44" cy="48" r="38" fill="url(#botBgHalo)" />
+                    <!-- Antenna -->
+                    <rect x="41.5" y="13" width="5" height="11" rx="2.5" fill="#f59e0b" />
+                    <circle cx="44" cy="11" r="6.2" fill="url(#antBall)" />
+                    <!-- Base neck glow -->
+                    <rect x="30" y="70" width="28" height="6" rx="3" fill="#0284c7" opacity="0.7" />
+                    <!-- Side ears -->
+                    <rect x="8" y="38" width="9" height="22" rx="4.5" fill="url(#botEar)" filter="url(#softDrop)" />
+                    <rect x="71" y="38" width="9" height="22" rx="4.5" fill="url(#botEar)" filter="url(#softDrop)" />
+                    <!-- Main 3D rounded head -->
+                    <rect x="14" y="21" width="60" height="51" rx="19" fill="url(#botShell)" filter="url(#softDrop)" />
+                    <!-- Top socket cap -->
+                    <path d="M36 21h16c-1.5 3.5-4.5 5-8 5s-6.5-1.5-8-5Z" fill="#94a3b8" opacity="0.65" />
+                    <!-- Dark glossy visor -->
+                    <rect x="21" y="34" width="46" height="28" rx="12" fill="url(#botVisor)" />
+                    <!-- Glowing cyan eyes & smile -->
+                    <circle cx="33" cy="46.5" r="5.5" fill="url(#botEye)" filter="url(#cyanGlow)" />
+                    <circle cx="55" cy="46.5" r="5.5" fill="url(#botEye)" filter="url(#cyanGlow)" />
+                    <path d="M39.5 54.5c2.2 2.1 6.8 2.1 9 0" fill="none" stroke="#22d3ee" stroke-width="2.8" stroke-linecap="round" filter="url(#cyanGlow)" />
+                  </svg>
+                </span>
+                <strong>Play with Bots</strong>
+                <span class="mode-desc">Instant solo match vs 3 AI bots</span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+
+              <button type="submit" name="mode" value="create" class="home-mode-btn mode-create">
+                <span class="mode-icon mode-icon-svg" aria-hidden="true">
+                  <!-- 3D Glassmorphic Orange Plus Ring SVG -->
+                  <svg viewBox="0 0 88 88" class="card-3d-svg">
+                    <defs>
+                      <linearGradient id="plusRingBg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#f97316" stop-opacity="0.72" />
+                        <stop offset="100%" stop-color="#c2410c" stop-opacity="0.88" />
+                      </linearGradient>
+                      <linearGradient id="plusRim" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#fef08a" stop-opacity="0.95" />
+                        <stop offset="100%" stop-color="#fdba74" stop-opacity="0.45" />
+                      </linearGradient>
+                      <linearGradient id="plusGlyph" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#fffbeb" />
+                        <stop offset="100%" stop-color="#fed7aa" />
+                      </linearGradient>
+                      <filter id="plusShadow" x="-25%" y="-25%" width="150%" height="160%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="3.2" flood-color="#7c2d12" flood-opacity="0.45" />
+                      </filter>
+                    </defs>
+                    <circle cx="44" cy="44" r="35" fill="url(#plusRingBg)" stroke="url(#plusRim)" stroke-width="2.2" />
+                    <path d="M44 26c2.2 0 4 1.8 4 4v10h10c2.2 0 4 1.8 4 4s-1.8 4-4 4H48v10c0 2.2-1.8 4-4 4s-4-1.8-4-4V48H30c-2.2 0-4-1.8-4-4s1.8-4 4-4h10V30c0-2.2 1.8-4 4-4Z" fill="url(#plusGlyph)" filter="url(#plusShadow)" />
+                  </svg>
+                </span>
+                <strong>Create Room</strong>
+                <span class="mode-desc">Host a room and invite friends</span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+
+              <button type="submit" name="mode" value="join" class="home-mode-btn mode-join">
+                <span class="mode-icon mode-icon-svg" aria-hidden="true">
+                  <!-- 3D Glossy Golden Key in Cobalt Glass Ring SVG -->
+                  <svg viewBox="0 0 88 88" class="card-3d-svg">
+                    <defs>
+                      <linearGradient id="keyRingBg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#3730a3" stop-opacity="0.6" />
+                        <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.72" />
+                      </linearGradient>
+                      <linearGradient id="keyRim" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.65" />
+                        <stop offset="100%" stop-color="#6366f1" stop-opacity="0.25" />
+                      </linearGradient>
+                      <linearGradient id="goldKey" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#fef08a" />
+                        <stop offset="45%" stop-color="#facc15" />
+                        <stop offset="100%" stop-color="#d97706" />
+                      </linearGradient>
+                      <filter id="keyDrop" x="-25%" y="-25%" width="150%" height="160%">
+                        <feDropShadow dx="0" dy="5" stdDeviation="3.5" flood-color="#1e1b4b" flood-opacity="0.55" />
+                      </filter>
+                    </defs>
+                    <circle cx="44" cy="44" r="35" fill="url(#keyRingBg)" stroke="url(#keyRim)" stroke-width="2" />
+                    <g transform="rotate(-45 44 44)" filter="url(#keyDrop)">
+                      <!-- Key bow (head) with cutout hole -->
+                      <path fill="url(#goldKey)" fill-rule="evenodd" d="M56 30a14 14 0 1 1 0 28 14 14 0 0 1 0-28Zm3 8.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z" />
+                      <!-- Key blade & beveled teeth -->
+                      <path fill="url(#goldKey)" d="M17 40.5h29v7.5H39v5.2a2.4 2.4 0 0 1-2.4 2.4h-2.4a2.4 2.4 0 0 1-2.4-2.4V48h-3.6v6a2.4 2.4 0 0 1-2.4 2.4h-2.8a2.4 2.4 0 0 1-2.4-2.4V48H17a3.5 3.5 0 0 1-3.5-3.5v-.5a3.5 3.5 0 0 1 3.5-3.5Z" />
+                    </g>
+                  </svg>
+                </span>
+                <strong>Join Room</strong>
+                <span class="mode-desc">Enter a room code or name</span>
+                <span class="mode-arrow" aria-hidden="true">→</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <ul class="home-features" aria-label="Game highlights">
+          <li>
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="boltG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#fef08a" />
+                  <stop offset="100%" stop-color="#f59e0b" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#boltG)" d="M13.5 2 4.5 13.5h6.2L9.5 22l10-12h-6.2L13.5 2Z" />
+            </svg>
+            Fast Gameplay
+          </li>
+          <li>
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="frG1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#e879f9" />
+                  <stop offset="100%" stop-color="#9333ea" />
+                </linearGradient>
+                <linearGradient id="frG2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#c084fc" />
+                  <stop offset="100%" stop-color="#6366f1" />
+                </linearGradient>
+              </defs>
+              <circle cx="9" cy="8.5" r="3.4" fill="url(#frG1)" />
+              <path fill="url(#frG1)" d="M9 13.2c-3.4 0-5.8 1.8-5.8 4.2 0 .8.6 1.4 1.4 1.4h8.8c.8 0 1.4-.6 1.4-1.4 0-2.4-2.4-4.2-5.8-4.2Z" />
+              <circle cx="16.2" cy="9.5" r="2.7" fill="url(#frG2)" />
+              <path fill="url(#frG2)" d="M16.2 13.5c2.6 0 4.6 1.4 4.6 3.5 0 .7-.5 1.3-1.2 1.3h-3.6c-.1-1.7-.7-3.3-1.4-4.5.5-.2 1-.3 1.6-.3Z" />
+            </svg>
+            Play with Friends
+          </li>
+          <li>
+            <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+              <defs>
+                <linearGradient id="trG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#fef08a" />
+                  <stop offset="100%" stop-color="#d97706" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#trG)" d="M6 3h12v3h3v2.5c0 2.6-1.8 4.7-4.3 5.2-.7 1.4-2 2.4-3.7 2.7V19h3.5v2h-9v-2H11v-2.6c-1.7-.3-3-1.3-3.7-2.7C4.8 13.2 3 11.1 3 8.5V6h3V3Zm-1 5v.5c0 1.4.8 2.5 2 3V8H5Zm14 0h-2v3.5c1.2-.5 2-1.6 2-3V8Z" />
+            </svg>
+            Win &amp; Enjoy
+          </li>
+        </ul>
+      </section>
+
+      <!-- Opponent 3D Seat Badges (Visual Slots 1=Left, 2=Top, 3=Right) with Glossy 3D Bot Avatars & Live Reaction Bubbles -->
+      <div class="seat-badge seat-left" id="seat-1" data-visual-slot="1" title="Tap to send reaction">
+        <div class="seat-reaction-bubble" id="reaction-1" aria-live="polite"></div>
+        <div class="seat-avatar bot-avatar-cyan" data-slot="1">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <circle cx="20" cy="6" r="2.6" fill="#38bdf8" />
+            <rect x="19" y="7.5" width="2" height="4" fill="#7dd3fc" />
+            <rect x="7" y="11" width="26" height="21" rx="8" fill="#e0f2fe" />
+            <rect x="10.5" y="15.5" width="19" height="11.5" rx="5" fill="#0f172a" />
+            <circle cx="15.5" cy="21" r="2.3" fill="#38f8ff" />
+            <circle cx="24.5" cy="21" r="2.3" fill="#38f8ff" />
+          </svg>
+          <span class="seat-online-dot"></span>
+        </div>
+        <div class="seat-meta">
+          <span class="seat-name" id="name-1">Nova (Bot)</span>
+          <span class="seat-cards" id="count-1">7 cards</span>
+        </div>
+        <span class="uno-tag" id="uno-1" hidden>UNO!</span>
+      </div>
+
+      <div class="seat-badge seat-top" id="seat-2" data-visual-slot="2" title="Tap to send reaction">
+        <div class="seat-reaction-bubble" id="reaction-2" aria-live="polite"></div>
+        <div class="seat-avatar bot-avatar-purple" data-slot="2">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <circle cx="20" cy="6" r="2.6" fill="#c084fc" />
+            <rect x="19" y="7.5" width="2" height="4" fill="#d8b4fe" />
+            <rect x="7" y="11" width="26" height="21" rx="8" fill="#f3e8ff" />
+            <rect x="10.5" y="15.5" width="19" height="11.5" rx="5" fill="#0f172a" />
+            <circle cx="15.5" cy="21" r="2.3" fill="#e879f9" />
+            <circle cx="24.5" cy="21" r="2.3" fill="#e879f9" />
+          </svg>
+          <span class="seat-online-dot"></span>
+        </div>
+        <div class="seat-meta">
+          <span class="seat-name" id="name-2">Apex (Bot)</span>
+          <span class="seat-cards" id="count-2">7 cards</span>
+        </div>
+        <span class="uno-tag" id="uno-2" hidden>UNO!</span>
+      </div>
+
+      <div class="seat-badge seat-right" id="seat-3" data-visual-slot="3" title="Tap to send reaction">
+        <div class="seat-reaction-bubble" id="reaction-3" aria-live="polite"></div>
+        <div class="seat-avatar bot-avatar-orange" data-slot="3">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <circle cx="20" cy="6" r="2.6" fill="#fb923c" />
+            <rect x="19" y="7.5" width="2" height="4" fill="#fdba74" />
+            <rect x="7" y="11" width="26" height="21" rx="8" fill="#ffedd5" />
+            <rect x="10.5" y="15.5" width="19" height="11.5" rx="5" fill="#0f172a" />
+            <circle cx="15.5" cy="21" r="2.3" fill="#facc15" />
+            <circle cx="24.5" cy="21" r="2.3" fill="#facc15" />
+          </svg>
+          <span class="seat-online-dot"></span>
+        </div>
+        <div class="seat-meta">
+          <span class="seat-name" id="name-3">Blaze (Bot)</span>
+          <span class="seat-cards" id="count-3">7 cards</span>
+        </div>
+        <span class="uno-tag" id="uno-3" hidden>UNO!</span>
+      </div>
+
+      <!-- On-Table Multiplayer Room Waiting Overlay (Shown when in a Room before Admin starts game) -->
+      <section
+        id="table-waiting-overlay"
+        class="table-waiting-overlay"
+        aria-labelledby="waiting-room-heading"
+        hidden
+      >
+        <div class="waiting-card">
+          <div class="waiting-header">
+            <div>
+              <span class="room-code-caption">MULTIPLAYER ROOM LOBBY</span>
+              <h2 id="waiting-room-heading" class="waiting-room-title">
+                Room: <span id="overlay-room-name">testing</span>
+              </h2>
+            </div>
+            <div class="waiting-code-box">
+              <span class="code-label">CODE</span>
+              <strong id="overlay-room-code">------</strong>
+            </div>
+          </div>
+
+          <p class="waiting-hint" id="overlay-waiting-status">
+            Empty seats are marked <strong>VACANT</strong>. Game will not start until the Admin clicks Start Game!
+          </p>
+
+          <ul class="waiting-seats-grid" id="overlay-seat-list"></ul>
+
+          <div class="waiting-actions">
+            <button type="button" class="pill-btn" id="overlay-copy-code-btn">
+              📋 Copy Code
+            </button>
+            <button type="button" class="pill-btn" id="overlay-copy-link-btn">
+              🔗 Copy Invite Link
+            </button>
+            <button
+              type="button"
+              class="primary-modal-btn"
+              id="overlay-admin-start-btn"
+            >
+              ▶ Start Game (Admin)
+            </button>
+            <button
+              type="button"
+              class="danger-modal-btn"
+              id="overlay-leave-room-btn"
+            >
+              Leave Room
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Center Floating 3D Action Callout -->
+      <div id="fx-callout" class="fx-callout" aria-live="polite"></div>
+
+      <!-- Animated "Played By" Card Spotlight Banner (Visible to all players when anyone plays a card) -->
+      <div id="played-card-toast" class="played-card-toast" aria-live="polite">
+        <div class="played-mini-card" id="played-mini-card">
+          <span class="mini-card-oval" id="played-mini-symbol">8</span>
+        </div>
+        <div class="played-toast-meta">
+          <span class="played-by-label" id="played-by-name">Nova played</span>
+          <strong class="played-card-name" id="played-card-name">Red 8</strong>
+        </div>
+      </div>
+
+      <!-- Floating On-Page 3D Camera View Switcher (Moved out of Hamburger Menu) -->
+      <button
+        type="button"
+        class="camera-fab-btn"
+        id="camera-switch-btn"
+        aria-label="Switch 3D camera angle"
+        title="Switch 3D Camera View (Tabletop / Close-Up / Overhead)"
+      >
+        <svg class="ui-svg-icon xs" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M4 6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2.1l3.6 2.4A1 1 0 0 0 22 15.5v-7a1 1 0 0 0-1.4-.8L17 10.1V8a2 2 0 0 0-2-2H4Z" />
+        </svg>
+        <span id="camera-view-label">3D View</span>
+      </button>
+
+      <!-- Bottom Player Controls, Unified Dock & Emoji Reactions -->
+      <footer class="hud-bottom">
+        <div class="turn-banner" id="turn-banner" role="status" aria-live="polite">
+          ⚡ Initializing 3D Tabletop...
+        </div>
+
+        <div class="bottom-controls unified-dock">
+          <button
+            type="button"
+            class="draw-btn"
+            id="draw-deck-btn"
+          >
+            <svg class="ui-svg-icon sm" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="3" width="13" height="18" rx="2.5" fill="#f8fafc" />
+              <rect x="6" y="5" width="9" height="14" rx="1.5" fill="#1e293b" />
+              <circle cx="10.5" cy="12" r="2.2" fill="#ef233c" />
+              <path d="M19 6.5v12.5a2 2 0 0 1-2 2H9" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+            <span id="draw-btn-label">Draw (<strong id="draw-pile-count">80</strong>)</span>
+          </button>
+
+          <div class="seat-badge seat-human" id="seat-0">
+            <div class="seat-reaction-bubble self-bubble" id="reaction-0" aria-live="polite"></div>
+            <span class="human-card-icon" aria-hidden="true">
+              <svg viewBox="0 0 28 28" width="24" height="24">
+                <rect x="3" y="5" width="11" height="16" rx="2.5" fill="#facc15" transform="rotate(-12 8 13)" />
+                <rect x="9" y="4" width="12" height="17" rx="2.5" fill="#ef233c" stroke="#ffffff" stroke-width="1.4" transform="rotate(8 15 13)" />
+              </svg>
+            </span>
+            <div class="seat-meta">
+              <span class="seat-name" id="name-0">Player (You)</span>
+              <span class="seat-cards" id="count-0">7 cards</span>
+            </div>
+            <span class="uno-tag" id="uno-0" hidden>UNO!</span>
+          </div>
+
+          <button
+            type="button"
+            class="uno-shout-btn"
+            id="uno-shout-btn"
+            hidden
+          >
+            SHOUT UNO!
+          </button>
+
+          <div class="emote-bar" id="emote-bar" aria-label="Send emoji reaction to table">
+            <button type="button" class="emote-btn" data-emote="🔥" aria-label="Fire reaction" title="Fire!">🔥</button>
+            <button type="button" class="emote-btn" data-emote="😂" aria-label="Laugh reaction" title="Haha!">😂</button>
+            <button type="button" class="emote-btn" data-emote="😱" aria-label="Shock reaction" title="Whoa!">😱</button>
+            <button type="button" class="emote-btn" data-emote="👏" aria-label="Clap reaction" title="Nice play!">👏</button>
+            <button type="button" class="emote-btn" data-emote="😎" aria-label="Cool reaction" title="Easy!">😎</button>
+            <button type="button" class="emote-btn" data-emote="💔" aria-label="Ouch reaction" title="Ouch!">💔</button>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Modal 2: Multi-Level Campaign Progression (5 Playable 3D Arenas) -->
+    <dialog
+      id="campaign-dialog"
+      closedby="any"
+      class="wide-dialog"
+      aria-labelledby="campaign-dialog-title"
+    >
+      <div class="dialog-header-row">
+        <h1 id="campaign-dialog-title" class="dialog-title">
+          🏆 Multi-Level 3D Arena Progression
+        </h1>
+        <button
+          type="button"
+          class="icon-btn"
+          id="close-campaign-btn"
+          aria-label="Close campaign dialog"
+        >
+          ✕
+        </button>
+      </div>
+
+      <p class="dialog-notice">
+        Win matches to earn <strong>XP</strong> and <strong>Arena Coins</strong>, level up, and unlock higher-stakes 3D tabletop arenas!
+      </p>
+
+      <div class="campaign-levels-list" id="campaign-levels-list"></div>
+    </dialog>
+
+    <!-- Modal 3: Wild 4-Color Wheel Selector (Mandatory Choice) -->
+    <dialog
+      id="wild-dialog"
+      closedby="none"
+      aria-labelledby="wild-dialog-title"
+    >
+      <h1 id="wild-dialog-title" class="dialog-title">Choose Wild Color</h1>
+      <p id="wild-required-msg" class="dialog-notice">
+        Pick a color for the active 3D arena ring to continue your turn.
+      </p>
+      <form method="dialog" class="wild-color-grid">
+        <button
+          type="submit"
+          value="red"
+          class="wild-sector wild-red"
+          aria-describedby="wild-required-msg"
+          autofocus
+        >
+          <span>Crimson Red</span>
+        </button>
+        <button
+          type="submit"
+          value="blue"
+          class="wild-sector wild-blue"
+        >
+          <span>Cobalt Blue</span>
+        </button>
+        <button
+          type="submit"
+          value="yellow"
+          class="wild-sector wild-yellow"
+        >
+          <span>Solar Yellow</span>
+        </button>
+        <button
+          type="submit"
+          value="green"
+          class="wild-sector wild-green"
+        >
+          <span>Emerald Green</span>
+        </button>
+      </form>
+    </dialog>
+
+    <!-- Modal 4: Complete UNO Rulebook & Custom House Rules Builder -->
+    <dialog
+      id="rules-dialog"
+      closedby="any"
+      class="wide-dialog"
+      aria-labelledby="rules-dialog-title"
+    >
+      <div class="dialog-header-row">
+        <h1 id="rules-dialog-title" class="dialog-title">
+          📜 Complete UNO Rules &amp; Custom House Rules
+        </h1>
+        <button
+          type="button"
+          class="icon-btn"
+          id="close-rules-btn"
+          aria-label="Close rules dialog"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="rules-scroll-body">
+        <section class="rulebook-section" aria-labelledby="official-rules-heading">
+          <h2 id="official-rules-heading" class="section-subtitle">
+            1. Official UNO Rules &amp; Card Guide
+          </h2>
+          <p class="rulebook-lead">
+            <strong>Objective:</strong> Be the first player to empty your 3D hand by matching the top discard card by <strong>Color</strong>, <strong>Number</strong>, or <strong>Action Symbol</strong>, or by playing a <strong>Wild</strong> card.
+          </p>
+
+          <div class="card-guide-grid">
+            <div class="guide-card">
+              <span class="guide-badge badge-num">0–9</span>
+              <div>
+                <strong>Number Cards (76 cards)</strong>
+                <p>Each color (Red, Yellow, Green, Blue) has one 0 and two of 1–9. Match color or number. Worth face value (0–9 pts).</p>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <span class="guide-badge badge-skip">⊘ SKIP</span>
+              <div>
+                <strong>Skip Card (8 cards • 20 pts)</strong>
+                <p>The next player in the current direction loses their turn. Playable on matching color or another Skip.</p>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <span class="guide-badge badge-rev">⇄ REV</span>
+              <div>
+                <strong>Reverse Card (8 cards • 20 pts)</strong>
+                <p>Flips the 3D arena direction ring between Clockwise (⟳) and Counter-Clockwise (⟲). In a 2-player game, acts like a Skip.</p>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <span class="guide-badge badge-d2">+2 DRAW</span>
+              <div>
+                <strong>Draw Two (8 cards • 20 pts)</strong>
+                <p>Forces the next player to draw 2 cards and forfeit their turn (or stack another +2/+4 on top when Stacking is ON!).</p>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <span class="guide-badge badge-wild">WILD</span>
+              <div>
+                <strong>Wild Card (4 cards • 50 pts)</strong>
+                <p>Playable on any turn. You choose the new active arena color (Red, Blue, Yellow, Green).</p>
+              </div>
+            </div>
+
+            <div class="guide-card">
+              <span class="guide-badge badge-w4">WILD +4</span>
+              <div>
+                <strong>Wild Draw Four (4 cards • 50 pts)</strong>
+                <p>Changes the active arena color AND forces the next player to draw 4 cards and lose their turn.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="rulebook-callout">
+            <strong>🔊 Calling "UNO!" &amp; Scoring:</strong> When you play down to <strong>1 card</strong>, tap the glowing <strong>SHOUT UNO!</strong> button within <strong>3.2 seconds</strong> or suffer an automatic penalty draw!
+          </div>
+        </section>
+
+        <section class="rulebook-section" aria-labelledby="house-rules-heading">
+          <h2 id="house-rules-heading" class="section-subtitle">
+            2. Customize Active Game &amp; House Rules
+          </h2>
+
+          <form
+            id="house-rules-form"
+            aria-labelledby="house-rules-heading"
+            action="#apply-rules"
+            method="POST"
+            class="house-rules-form"
+          >
+            <fieldset class="rules-fieldset">
+              <legend>Special House Rule Toggles</legend>
+
+              <div class="check-row">
+                <input
+                  type="checkbox"
+                  id="rule-stacking"
+                  name="stacking"
+                  class="visually-hidden-fallback"
+                  checked
+                />
+                <label for="rule-stacking">
+                  <span><strong>Stacking (+2 on +2, +4 on +4):</strong> Defend against a Draw +2 or Wild +4 by stacking another one on top!</span>
+                </label>
+              </div>
+
+              <div class="check-row">
+                <input
+                  type="checkbox"
+                  id="rule-seven-zero"
+                  name="sevenZeroSwap"
+                  class="visually-hidden-fallback"
+                />
+                <label for="rule-seven-zero">
+                  <span><strong>7–0 Hand Swap &amp; Rotate:</strong> Playing a <strong>7</strong> swaps your hand with the leader; playing a <strong>0</strong> rotates all hands!</span>
+                </label>
+              </div>
+
+              <div class="check-row">
+                <input
+                  type="checkbox"
+                  id="rule-draw-until"
+                  name="drawUntilPlayable"
+                  class="visually-hidden-fallback"
+                />
+                <label for="rule-draw-until">
+                  <span><strong>Draw Until Playable:</strong> Keep drawing from the 3D deck (up to 5 cards) until you draw a playable match.</span>
+                </label>
+              </div>
+
+              <div class="check-row">
+                <input
+                  type="checkbox"
+                  id="rule-jump-in"
+                  name="jumpIn"
+                  class="visually-hidden-fallback"
+                />
+                <label for="rule-jump-in">
+                  <span><strong>Jump-In (Exact Twin Card):</strong> Play out-of-turn anytime you hold the exact same color AND number/symbol!</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="fieldset-pair">
+              <fieldset class="rules-fieldset">
+                <legend>Starting Hand Size</legend>
+                <div class="radio-group">
+                  <div class="radio-item">
+                    <input type="radio" id="hand-5" name="startingHandSize" value="5" />
+                    <label for="hand-5"><span>5 Cards (Blitz)</span></label>
+                  </div>
+                  <div class="radio-item">
+                    <input type="radio" id="hand-7" name="startingHandSize" value="7" checked />
+                    <label for="hand-7"><span>7 Cards (Official)</span></label>
+                  </div>
+                  <div class="radio-item">
+                    <input type="radio" id="hand-10" name="startingHandSize" value="10" />
+                    <label for="hand-10"><span>10 Cards (Marathon)</span></label>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset class="rules-fieldset">
+                <legend>Missed UNO! Penalty</legend>
+                <div class="radio-group">
+                  <div class="radio-item">
+                    <input type="radio" id="pen-2" name="unoPenaltyCards" value="2" checked />
+                    <label for="pen-2"><span>+2 Penalty Cards (Official)</span></label>
+                  </div>
+                  <div class="radio-item">
+                    <input type="radio" id="pen-4" name="unoPenaltyCards" value="4" />
+                    <label for="pen-4"><span>+4 Penalty Cards (Hardcore)</span></label>
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+
+            <div class="dialog-footer">
+              <button type="submit" class="primary-modal-btn">
+                Save Rules &amp; Apply to Table
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </dialog>
+
+    <!-- Modal 5: Full Multiplayer Room Create & Join Dialog -->
+    <dialog
+      id="multiplayer-dialog"
+      closedby="any"
+      class="mp-modal"
+      data-mode="create"
+      aria-labelledby="mp-dialog-title"
+    >
+      <div class="dialog-header-row mp-header-row">
+        <div class="mp-title-group">
+          <span class="mp-header-badge badge-create" aria-hidden="true">
+            <svg viewBox="0 0 88 88" class="card-3d-svg">
+              <circle cx="44" cy="44" r="35" fill="url(#plusRingBg)" stroke="url(#plusRim)" stroke-width="2.5" />
+              <path d="M44 26c2.2 0 4 1.8 4 4v10h10c2.2 0 4 1.8 4 4s-1.8 4-4 4H48v10c0 2.2-1.8 4-4 4s-4-1.8-4-4V48H30c-2.2 0-4-1.8-4-4s1.8-4 4-4h10V30c0-2.2 1.8-4 4-4Z" fill="url(#plusGlyph)" />
+            </svg>
+          </span>
+          <span class="mp-header-badge badge-join" aria-hidden="true">
+            <svg viewBox="0 0 88 88" class="card-3d-svg">
+              <circle cx="44" cy="44" r="35" fill="url(#keyRingBg)" stroke="url(#keyRim)" stroke-width="2.2" />
+              <g transform="rotate(-45 44 44)">
+                <path fill="url(#goldKey)" fill-rule="evenodd" d="M56 30a14 14 0 1 1 0 28 14 14 0 0 1 0-28Zm3 8.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z" />
+                <path fill="url(#goldKey)" d="M17 40.5h29v7.5H39v5.2a2.4 2.4 0 0 1-2.4 2.4h-2.4a2.4 2.4 0 0 1-2.4-2.4V48h-3.6v6a2.4 2.4 0 0 1-2.4 2.4h-2.8a2.4 2.4 0 0 1-2.4-2.4V48H17a3.5 3.5 0 0 1-3.5-3.5v-.5a3.5 3.5 0 0 1 3.5-3.5Z" />
+              </g>
+            </svg>
+          </span>
+          <div>
+            <span class="mp-eyebrow">3D ARENA MULTIPLAYER</span>
+            <h1 id="mp-dialog-title" class="dialog-title">Create a New Room</h1>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="modal-close-btn"
+          id="close-mp-btn"
+          aria-label="Close multiplayer dialog"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- Segmented Mode Switcher Pill -->
+      <div class="mp-mode-switch" role="group" aria-label="Choose multiplayer action">
+        <button type="button" class="mp-switch-btn active" id="mp-tab-create" data-switch="create">
+          Create Room
+        </button>
+        <button type="button" class="mp-switch-btn" id="mp-tab-join" data-switch="join">
+          Join Room
+        </button>
+      </div>
+
+      <p class="dialog-notice mp-notice" id="mp-status-banner" role="status" aria-live="polite">
+        Name your room. Empty seats stay <strong>VACANT</strong> until players join, and the game waits for you (Admin) to start.
+      </p>
+
+      <div id="mp-entry-forms" class="mp-grid" data-mode="create">
+        <form
+          id="create-room-form"
+          aria-labelledby="create-room-heading"
+          action="#create-room"
+          method="POST"
+          class="mp-card-form"
+        >
+          <h2 id="create-room-heading" class="visually-hidden">Create a New Room</h2>
+
+          <div class="field">
+            <label for="create-room-name">
+              Room Name <span class="req-star" aria-hidden="true">*</span>
+            </label>
+            <div class="modal-input-wrap">
+              <input
+                type="text"
+                id="create-room-name"
+                name="roomName"
+                required
+                minlength="2"
+                maxlength="24"
+                value="testing"
+                placeholder="e.g. testing"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="next"
+              />
+              <span class="input-edit-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
+                  <path d="M14.85 2.85a2.1 2.1 0 0 1 2.97 2.97L7.5 16.14l-4.1 1.13 1.13-4.1L14.85 2.85Z" />
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="create-player-name">
+              Admin Display Name <span class="req-star" aria-hidden="true">*</span>
+            </label>
+            <div class="modal-input-wrap">
+              <input
+                type="text"
+                id="create-player-name"
+                name="playerName"
+                required
+                minlength="2"
+                maxlength="18"
+                value="Admin"
+                placeholder="Your player name"
+                autocomplete="nickname"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="done"
+              />
+              <span class="input-edit-icon" aria-hidden="true">
+                <svg class="ui-svg-icon xs" viewBox="0 0 24 24">
+                  <circle cx="12" cy="8" r="4" fill="currentColor" />
+                  <path fill="currentColor" d="M12 14c-4.2 0-7 2.1-7 5 0 .6.4 1 1 1h12c.6 0 1-.4 1-1 0-2.9-2.8-5-7-5Z" />
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="modal-info-pill">
+            <span class="info-dot orange" aria-hidden="true"></span>
+            <span>Other seats stay <strong>VACANT</strong> until friends join. Only you (Admin) can start the match.</span>
+          </div>
+
+          <button type="submit" class="primary-modal-btn modal-cta-btn">
+            <span>Create Room &amp; Open Lobby</span>
+            <span class="cta-arrow" aria-hidden="true">→</span>
+          </button>
+        </form>
+
+        <form
+          id="join-room-form"
+          aria-labelledby="join-room-heading"
+          action="#join-room"
+          method="POST"
+          class="mp-card-form"
+        >
+          <h2 id="join-room-heading" class="visually-hidden">Join Existing Room</h2>
+          <div class="field">
+            <label for="join-player-name">
+              Your Display Name <span class="req-star" aria-hidden="true">*</span>
+            </label>
+            <div class="modal-input-wrap">
+              <input
+                type="text"
+                id="join-player-name"
+                name="playerName"
+                required
+                minlength="2"
+                maxlength="18"
+                value="Challenger"
+                placeholder="Your player name"
+                autocomplete="nickname"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="next"
+              />
+              <span class="input-edit-icon" aria-hidden="true">
+                <svg class="ui-svg-icon xs" viewBox="0 0 24 24">
+                  <circle cx="12" cy="8" r="4" fill="currentColor" />
+                  <path fill="currentColor" d="M12 14c-4.2 0-7 2.1-7 5 0 .6.4 1 1 1h12c.6 0 1-.4 1-1 0-2.9-2.8-5-7-5Z" />
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="join-room-code">
+              6-Char Room Code or Room Name <span class="req-star" aria-hidden="true">*</span>
+            </label>
+            <div class="modal-input-wrap">
+              <input
+                type="text"
+                id="join-room-code"
+                name="roomCode"
+                required
+                minlength="2"
+                maxlength="24"
+                placeholder="e.g. K7X9M2 or testing"
+                aria-describedby="join-code-help"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="go"
+              />
+              <span class="input-edit-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                  <path d="M14.5 4a5.5 5.5 0 1 0 3.7 9.6l-7.7 7.7H7v-3.5l1.5-1.5V14h2.2l1.4-1.4A5.5 5.5 0 0 0 14.5 4Zm1 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z" />
+                </svg>
+              </span>
+            </div>
+            <span id="join-code-help" class="field-hint">
+              Enter the 6-character code or the exact Room Name (like testing).
+            </span>
+          </div>
+
+          <button type="submit" class="secondary-modal-btn modal-cta-btn">
+            <span>Join 3D Room Lobby</span>
+            <span class="cta-arrow" aria-hidden="true">→</span>
+          </button>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Modal 6: Victory / Match Summary Dialog -->
+    <dialog
+      id="victory-dialog"
+      closedby="any"
+      aria-labelledby="victory-dialog-title"
+    >
+      <h1 id="victory-dialog-title" class="dialog-title">Match Complete!</h1>
+      <p class="victory-subtitle" id="victory-subtitle">You cleared your hand!</p>
+      <div class="victory-score-box">
+        <span class="score-caption">MATCH REWARDS</span>
+        <strong class="score-number" id="victory-score">+145 PTS • +300 🪙</strong>
+      </div>
+      <form method="dialog" class="dialog-footer stacked">
+        <button type="submit" value="rematch" class="primary-modal-btn" autofocus>
+          Play Another 3D Match
+        </button>
+        <button type="submit" value="home" class="secondary-modal-btn">
+          Back to Main Menu
+        </button>
+      </form>
+    </dialog>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
