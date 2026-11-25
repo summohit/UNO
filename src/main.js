@@ -239,7 +239,8 @@ const uiCallbacks = {
     campaignLevel,
     isMultiplayer = false,
     standings = [],
-    stats = {}
+    stats = {},
+    scoreInfo = null
   ) {
     const lvlInfo =
       CAMPAIGN_LEVELS.find((l) => l.level === campaignLevel) ||
@@ -268,6 +269,13 @@ const uiCallbacks = {
     victoryScore.textContent = earnsReward
       ? `+${score} PTS • +${lvlInfo.rewardCoins} 🪙`
       : `+${score} PTS`;
+    if (scoreInfo) {
+      victoryScore.textContent += ` • Total ${scoreInfo.total}/${scoreInfo.target}`;
+      if (scoreInfo.champion !== null) {
+        victoryTitle.textContent = `🏆 ${scoreInfo.championName || 'Someone'} wins the night!`;
+        victorySubtitle.textContent = `First to ${scoreInfo.target} points. Play again to start a new scoreboard.`;
+      }
+    }
 
     // Update XP Progress Bar
     const xpWithinLevel = playerProfile.xp % 250;
@@ -301,9 +309,12 @@ const uiCallbacks = {
         left.textContent = `${medals[idx] || `${idx + 1}.`} ${entry.name}`;
         const right = document.createElement('span');
         right.className = 'podium-cards-tag';
-        right.textContent = entry.isWinner
+        const round = entry.isWinner
           ? 'WINNER'
-          : `${entry.cardsLeft} ${entry.cardsLeft === 1 ? 'card' : 'cards'} left`;
+          : entry.eliminated
+            ? 'OUT'
+            : `${entry.cardsLeft} ${entry.cardsLeft === 1 ? 'card' : 'cards'} left`;
+        right.textContent = typeof entry.total === 'number' ? `${round} • ${entry.total} pts` : round;
         li.append(left, right);
         podiumList.appendChild(li);
       });
@@ -456,6 +467,19 @@ function showSeatReaction(visualSlot, emoji, label = '') {
 }
 
 uiCallbacks.showSeatReaction = showSeatReaction;
+
+// Catch a player who forgot to call UNO.
+const catchBtn = document.getElementById('catch-uno-btn');
+const catchName = document.getElementById('catch-uno-name');
+let catchTargetSeat = null;
+uiCallbacks.setCatchTarget = (target) => {
+  catchTargetSeat = target ? target.seat : null;
+  catchBtn.hidden = !target;
+  if (target) catchName.textContent = target.name;
+};
+catchBtn.addEventListener('click', () => {
+  if (catchTargetSeat !== null) game.catchUno(catchTargetSeat);
+});
 
 // 7–0 rule: choose whose hand to swap with.
 const swapDialog = document.getElementById('swap-dialog');
@@ -750,6 +774,17 @@ const network = new MultiplayerClient({
     } else {
       tableWaitingOverlay.hidden = true;
       game.configureRosterFromRoom(room, localSeat);
+      if (room.gameOver) {
+        const humans = room.players.filter((p) => !p.isBot && p.connected);
+        const ready = humans.filter((p) => p.ready);
+        if (ready.length > 0) {
+          const waiting = humans.filter((p) => !p.ready).map((p) => p.name).join(', ');
+          uiCallbacks.showBanner(
+            `Play again: ${ready.length}/${humans.length} ready${waiting ? ` • waiting for ${waiting}` : ''}`,
+            'neutral'
+          );
+        }
+      }
     }
   },
 

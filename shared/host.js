@@ -12,8 +12,11 @@ export class GameHost {
    * @param {number} [opts.botDelayMs]
    * @param {number} [opts.unoWindowMs]
    */
-  constructor({ rules, players, send, botDelayMs = 1100, unoWindowMs = 3200, turnMs = null, rng }) {
-    this.engine = new UnoEngine({ rules, players, rng });
+  constructor({
+    rules, players, send, botDelayMs = 1100, unoWindowMs = 3200, turnMs = null, rng,
+    scores, botForgetChance,
+  }) {
+    this.engine = new UnoEngine({ rules, players, rng, scores, botForgetChance });
     this.send = send;
     this.botDelayMs = botDelayMs;
     this.unoWindowMs = unoWindowMs;
@@ -49,7 +52,7 @@ export class GameHost {
       this.sendView(seat, events);
     }
     for (const e of events) {
-      if (e.type === 'uno_window') this.startUnoTimer(e.seat);
+      if (e.type === 'uno_window') this.scheduleUnoWindow(e.seat);
     }
     this.scheduleBot();
   }
@@ -82,21 +85,39 @@ export class GameHost {
     }, this.turnMs);
   }
 
-  startUnoTimer(seat) {
+  /**
+   * Someone is on one card without calling UNO. Humans can tap "Catch!" any time;
+   * a bot opponent catches them after a short delay, and a bot that forgot may
+   * still remember in time.
+   */
+  scheduleUnoWindow(seat) {
     this.clearUnoTimer(seat);
-    this.unoTimers.set(
-      seat,
-      setTimeout(() => {
-        this.unoTimers.delete(seat);
-        const events = this.engine.penalizeMissedUno(seat);
-        if (events.length) this.publish(events);
-      }, this.unoWindowMs)
-    );
+    const e = this.engine;
+    const rand = (min, max) => min + Math.random() * (max - min);
+    const timers = [];
+
+    if (e.players[seat].isBot && Math.random() < 0.5) {
+      timers.push(setTimeout(() => {
+        if (this.stopped || !e.isCatchable(seat)) return;
+        const res = e.act(seat, { type: 'uno' });
+        if (res.ok) this.publish(res.events);
+      }, rand(800, 2000)));
+    }
+
+    const catchers = e.players.filter((p) => p.active && p.isBot && p.seat !== seat);
+    if (catchers.length) {
+      const bot = catchers[Math.floor(Math.random() * catchers.length)];
+      timers.push(setTimeout(() => {
+        if (this.stopped || !e.isCatchable(seat) || !e.players[bot.seat].active) return;
+        const res = e.act(bot.seat, { type: 'catch', target: seat });
+        if (res.ok) this.publish(res.events);
+      }, rand(this.unoWindowMs * 0.7, this.unoWindowMs * 1.2)));
+    }
+    this.unoTimers.set(seat, timers);
   }
 
   clearUnoTimer(seat) {
-    const t = this.unoTimers.get(seat);
-    if (t) clearTimeout(t);
+    for (const t of this.unoTimers.get(seat) || []) clearTimeout(t);
     this.unoTimers.delete(seat);
   }
 
@@ -132,7 +153,7 @@ export class GameHost {
     this.stopped = true;
     clearTimeout(this.botTimer);
     clearTimeout(this.turnTimer);
-    for (const t of this.unoTimers.values()) clearTimeout(t);
+    for (const list of this.unoTimers.values()) list.forEach((t) => clearTimeout(t));
     this.unoTimers.clear();
   }
 }

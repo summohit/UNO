@@ -15,6 +15,7 @@ const CHAOS_WILD_VALUES = ['rev4', 'draw6', 'draw10', 'roulette'];
 /** How many cards a draw card adds to the stack (0 = not a draw card). */
 export const DRAW_VALUE = { draw2: 2, wild4: 4, draw4c: 4, rev4: 4, draw6: 6, draw10: 10 };
 export const ELIMINATION_HAND_SIZE = 25;
+export const SCORE_TARGET = 500;
 
 export const DEFAULT_RULES = {
   mode: 'classic', // 'classic' | 'chaos'
@@ -112,7 +113,12 @@ export class UnoEngine {
    * @param {{name:string,isBot:boolean,active:boolean}[]} opts.players exactly 4 seats
    * @param {() => number} [opts.rng]
    */
-  constructor({ rules, players, rng = Math.random }) {
+  constructor({ rules, players, rng = Math.random, scores = null, scoreTarget = SCORE_TARGET, botForgetChance = 0.25 }) {
+    // Running score across rounds (the caller keeps the array between matches).
+    this.scores = scores || [0, 0, 0, 0];
+    this.scoreTarget = scoreTarget;
+    this.champion = null;
+    this.botForgetChance = botForgetChance;
     this.rng = rng;
     this.rules = effectiveRules(rules);
     this.players = players.map((p, seat) => ({
@@ -223,6 +229,7 @@ export class UnoEngine {
       drawn.push(c);
     }
     this.players[seat].calledUno = false;
+    this.players[seat].unoVulnerable = false;
     events.push({ type: 'draw', seat, reason, count: drawn.length, cards: drawn.map(pub) });
     this.checkElimination(seat, events);
     return drawn;
@@ -260,8 +267,21 @@ export class UnoEngine {
         if (player.hand.length > 2) return { ok: false, error: 'too_many_cards', events };
         if (!player.calledUno) {
           player.calledUno = true;
+          player.unoVulnerable = false;
           events.push({ type: 'uno', seat });
         }
+        return { ok: true, events };
+      }
+
+      // Catch someone who is down to one card and has not called UNO. Works out of turn.
+      case 'catch': {
+        const target = this.players[action.target];
+        if (!target || target.seat === seat || !this.isCatchable(target.seat)) {
+          return { ok: false, error: 'nothing_to_catch', events };
+        }
+        target.unoVulnerable = false;
+        events.push({ type: 'caught', seat: target.seat, by: seat });
+        this.drawCards(target.seat, this.rules.unoPenaltyCards, 'uno_penalty', events);
         return { ok: true, events };
       }
 
@@ -354,11 +374,13 @@ export class UnoEngine {
 
     this.applySevenZero(seat, card.value, events, swapTarget);
 
-    if (player.hand.length === 1) {
-      if (player.isBot) {
+    if (player.hand.length === 1 && !player.calledUno) {
+      // Bots usually remember UNO; sometimes they forget and can be caught.
+      if (player.isBot && this.rng() >= this.botForgetChance) {
         player.calledUno = true;
         events.push({ type: 'uno', seat });
-      } else if (!player.calledUno) {
+      } else {
+        player.unoVulnerable = true;
         events.push({ type: 'uno_window', seat });
       }
     }
@@ -435,6 +457,7 @@ export class UnoEngine {
         const from = (i - this.direction + seats.length) % seats.length;
         this.players[s].hand = hands[from];
         this.players[s].calledUno = false;
+        this.players[s].unoVulnerable = false;
       });
       events.push({ type: 'rotate_hands', direction: this.direction });
     } else if (value === '7') {
@@ -446,6 +469,8 @@ export class UnoEngine {
       [me.hand, target.hand] = [target.hand, me.hand];
       me.calledUno = false;
       target.calledUno = false;
+      me.unoVulnerable = false;
+      target.unoVulnerable = false;
       events.push({ type: 'swap_hands', seat, target: targetSeat });
     }
   }
@@ -462,16 +487,14 @@ export class UnoEngine {
     this.points = this.players
       .filter((p) => p.seat !== seat)
       .reduce((sum, p) => sum + p.hand.reduce((s, c) => s + cardPoints(c), 0), 0);
-    events.push({ type: 'win', seat, points: this.points });
+    this.scores[seat] = (this.scores[seat] || 0) + this.points;
+    if (this.scores[seat] >= this.scoreTarget) this.champion = seat;
+    events.push({ type: 'win', seat, points: this.points, total: this.scores[seat], champion: this.champion });
   }
 
-  /** Called by the host when a player's UNO window runs out. */
-  penalizeMissedUno(seat) {
+  isCatchable(seat) {
     const p = this.players[seat];
-    const events = [];
-    if (this.gameOver || !p || p.calledUno || p.hand.length !== 1) return events;
-    this.drawCards(seat, this.rules.unoPenaltyCards, 'uno_penalty', events);
-    return events;
+    return Boolean(!this.gameOver && p && p.active && p.unoVulnerable && !p.calledUno && p.hand.length === 1);
   }
 
   /** Simple bot: prefer coloured cards over wilds, otherwise draw. */
@@ -509,6 +532,9 @@ export class UnoEngine {
       gameOver: this.gameOver,
       winner: this.winner,
       points: this.points,
+      scores: [...this.scores],
+      scoreTarget: this.scoreTarget,
+      champion: this.champion,
       drawCount: this.drawPile.length,
       discardTop: this.discardPile.slice(-12).map(pub),
       players: this.players.map((p) => ({
@@ -518,6 +544,7 @@ export class UnoEngine {
         active: p.active,
         count: p.hand.length,
         calledUno: p.calledUno,
+        catchable: this.isCatchable(p.seat),
         away: Boolean(p.away),
         eliminated: Boolean(p.eliminated),
         hand: p.seat === seat ? p.hand.map(pub) : null,

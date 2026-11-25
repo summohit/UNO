@@ -3496,3 +3496,108 @@ dialog.card-preview-modal {
 .chaos-rule-row label {
   border-color: rgba(248, 113, 113, 0.45);
 }
+
+/* ---- Catch a missed UNO ---- */
+.catch-uno-btn {
+  position: fixed;
+  left: 50%;
+  top: 84px;
+  transform: translateX(-50%);
+  z-index: 40;
+  white-space: nowrap;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 14px 26px;
+  border: 2px solid #fecaca;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dc2626, #f97316);
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  box-shadow: 0 10px 30px rgba(220, 38, 38, 0.5);
+  cursor: pointer;
+  animation: catch-pulse 0.9s ease-in-out infinite;
+}
+
+.catch-uno-btn[hidden] {
+  display: none;
+}
+
+@keyframes catch-pulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.07); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catch-uno-btn { animation: none; }
+}
+
+/* ---- Phone layout (narrow portrait screens) ---- */
+@media (max-width: 480px) {
+  .hud-top {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .hud-uno-badge {
+    display: none;
+  }
+
+  /* Level pill: trophy icon only; the level name is in the menu */
+  .level-pill #top-level-text,
+  .level-pill .pill-caret {
+    display: none;
+  }
+
+  .level-pill {
+    padding: 8px;
+    min-width: 0;
+  }
+
+  .table-status-pill {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .table-status-pill .state-label {
+    white-space: nowrap;
+    font-size: 0.82rem;
+  }
+
+  .top-right-cluster {
+    gap: 6px;
+  }
+
+  .coins-pill {
+    padding-inline: 8px;
+    font-size: 0.85rem;
+  }
+
+  .hud-avatar-pill .pill-caret {
+    display: none;
+  }
+
+  #camera-switch-btn {
+    top: auto;
+    bottom: 236px;
+    right: 10px;
+  }
+
+  .catch-uno-btn {
+    top: 70px;
+    font-size: 0.95rem;
+    padding: 12px 20px;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Direction is already shown by the arrows on the 3D table */
+  .table-status-pill .dir-badge {
+    display: none;
+  }
+}

@@ -50,11 +50,11 @@ Priority: P0 = must fix before going public · P1 = important · P2 = nice to ha
 |---|------|------|----------|-------|--------|
 | 4.1 | **Bug:** big stacks (+8/+12) lose cards when the draw pile runs out partway (the pile isn't refilled mid-draw) | Bug | P0 | game.js / rules | ✅ |
 | 4.2 | **Bug:** a +2/Skip/Reverse turned up as the opening card has no effect | Bug | P1 | game.js / rules | ✅ |
-| 4.3 | Let players catch someone who forgot to call UNO (not only the timer penalty) | Feature | P1 | rules, main.js | ⬜ |
+| 4.3 | Let players catch someone who forgot to call UNO (not only the timer penalty) | Feature | P1 | rules, main.js | ✅ |
 | 4.4 | Let the player choose who to swap with on a 7 (it currently picks automatically) | Feature | P1 | rules, index.html, main.js | ✅ |
-| 4.5 | Bots always call UNO → give them a small chance to forget | Feature | P2 | rules | ⬜ |
-| 4.6 | Rematch vote + "play again with the same room" | Feature | P1 | server.js, main.js | ⬜ |
-| 4.7 | Running score across several rounds (to 500 points) | Feature | P2 | server.js, main.js | ⬜ |
+| 4.5 | Bots always call UNO → give them a small chance to forget | Feature | P2 | rules | ✅ |
+| 4.6 | Rematch vote + "play again with the same room" | Feature | P1 | server.js, main.js | ✅ |
+| 4.7 | Running score across several rounds (to 500 points) | Feature | P2 | server.js, main.js | ✅ |
 | 4.8 | **Bug:** campaign rewards are paid for multiplayer wins | Bug | P2 | main.js | ✅ |
 | 4.9 | **Bug:** `unlockLevel` is never enforced (every level is open) | Bug | P2 | main.js | ⬜ |
 | 4.10 | **Bug:** the bot name list contains "You" | Bug | P2 | server.js | ✅ |

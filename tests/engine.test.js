@@ -16,7 +16,7 @@ function playOut(rules, n, maxTurns = 5000) {
     const seat = e.currentPlayer;
     const res = e.act(seat, e.botAction(seat));
     assert.ok(res.ok, res.error);
-    for (const ev of res.events) if (ev.type === 'uno_window') e.penalizeMissedUno(ev.seat);
+    for (const ev of res.events) if (ev.type === 'uno_window') e.act((ev.seat + 1) % 4 === ev.seat ? 0 : [0,1,2,3].find((x) => x !== ev.seat && e.players[x].active), { type: 'catch', target: ev.seat });
     assert.equal(total(e), 108, 'card count must stay 108');
   }
   assert.ok(e.gameOver, "game should finish");

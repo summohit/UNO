@@ -185,6 +185,10 @@ export class MultiplayerClient {
     this._send({ type: 'start_match' });
   }
 
+  voteRematch() {
+    this._send({ type: 'rematch_vote' });
+  }
+
   sendAction(action) {
     this._send({ type: 'action', action });
   }

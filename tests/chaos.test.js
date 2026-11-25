@@ -35,7 +35,7 @@ test('random chaos bot games finish and never lose cards', () => {
         const res = e.act(s, e.botAction(s));
         assert.ok(res.ok, res.error);
         for (const ev of res.events) {
-          if (ev.type === 'uno_window') e.penalizeMissedUno(ev.seat);
+          if (ev.type === 'uno_window') e.act((ev.seat + 1) % 4 === ev.seat ? 0 : [0,1,2,3].find((x) => x !== ev.seat && e.players[x].active), { type: 'catch', target: ev.seat });
           if (ev.type === 'eliminated') eliminations++;
         }
         assert.equal(total(e), 140);

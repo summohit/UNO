@@ -18,6 +18,7 @@ npm test                                   # rules engine unit tests
 RECONNECT_GRACE_MS=1500 TURN_MS=2500 PORT=4199 node server.js   # short timers for the checks
 node tests/multiplayer.check.mjs 4199
 node tests/reconnect.check.mjs 4199
+node tests/rematch.check.mjs 4199
 ```
 
 ## How it works

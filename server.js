@@ -105,9 +105,19 @@ function publicRoom(room) {
       isBot: s.isBot,
       away: Boolean(s.away),
       connected: s.isBot ? !s.away : isConnected(s),
+      ready: Boolean(s.ready),
+      score: room.scores[seat] || 0,
     });
   });
-  return { code: room.code, roomName: room.roomName, hostId: room.hostId, started: room.started, rules: room.rules, players };
+  return {
+    code: room.code,
+    roomName: room.roomName,
+    hostId: room.hostId,
+    started: room.started,
+    gameOver: Boolean(room.game && room.game.engine.gameOver),
+    rules: room.rules,
+    players,
+  };
 }
 
 function sendRoom(room, s, seat, type) {
@@ -162,9 +172,13 @@ function gameRunning(room) {
 function startGame(room) {
   if (room.game) room.game.stop();
   room.started = true;
+  // A new night starts after someone reached 500.
+  if (room.game && room.game.engine.champion !== null) room.scores = [0, 0, 0, 0];
+  room.seats.forEach((s) => s && (s.ready = false));
   const game = new GameHost({
     rules: room.rules,
     turnMs: TURN_MS,
+    scores: room.scores, // updated in place when a round is won
     players: room.seats.map((s, seat) => ({
       name: s ? s.name : `Seat ${seat + 1}`,
       isBot: Boolean(s?.isBot),
@@ -301,6 +315,7 @@ const handlers = {
       seats: [newHumanSeat(ws, cleanText(data.playerName, 18) || 'Host'), null, null, null],
       game: null,
       emptyTimer: null,
+      scores: [0, 0, 0, 0],
     };
     room.hostId = room.seats[0].id;
     rooms.set(room.code, room);
@@ -348,6 +363,7 @@ const handlers = {
     }
 
     room.seats[seat] = newHumanSeat(ws, name);
+    if (!gameRunning(room)) room.scores[seat] = 0; // new player at this seat starts from zero
     tokenToRoom.set(ws.token, room.code);
     ws.roomCode = room.code;
     maintainRoom(room);
@@ -394,6 +410,22 @@ const handlers = {
       return;
     }
     startGame(room);
+  },
+
+  // After a match: everyone taps "Play again"; the next match starts when all connected players are ready.
+  rematch_vote(ws, data, room, seatIdx) {
+    if (!room.started || gameRunning(room)) return;
+    room.seats[seatIdx].ready = true;
+    const humans = room.seats.filter(isConnected);
+    if (humans.length > 0 && humans.every((s) => s.ready) && room.seats.filter(Boolean).length >= 2) {
+      room.seats.forEach((s, i) => {
+        if (isHuman(s) && s.isBot) vacateSeat(room, i);
+      });
+      startGame(room);
+      broadcastRoom(room);
+    } else {
+      broadcastRoom(room);
+    }
   },
 
   action(ws, data, room, seatIdx) {

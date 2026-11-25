@@ -578,9 +578,9 @@ export class Uno3DArena {
     const aspect = window.innerWidth / window.innerHeight;
     // Adapt camera distance for portrait mobile screens vs landscape
     if (aspect < 0.75) {
-      this.camera.fov = 54;
-      this.baseCamPos.set(0, 10.6, 10.4);
-      this.baseLookAt.set(0, -0.2, 1.35);
+      this.camera.fov = 56;
+      this.baseCamPos.set(0, 11.2, 10.6);
+      this.baseLookAt.set(0, -0.2, 1.15);
     } else if (aspect < 1.1) {
       this.camera.fov = 50;
       this.baseCamPos.set(0, 9.6, 9.5);

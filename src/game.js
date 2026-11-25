@@ -347,10 +347,12 @@ export class Uno3DGame {
   /** Solo: starts a new local game. In a room: the host asks the server for a (re)match. */
   startNewMatch() {
     if (this.inRoom()) {
-      if (this.network.isHost()) {
+      if (this.network.room?.started) {
+        // After a match everyone votes; the next one starts when all are ready.
+        this.network.voteRematch();
+        this.ui.showBanner('Ready! Waiting for the others to tap Play Again...', 'neutral');
+      } else if (this.network.isHost()) {
         this.network.requestStartMatch();
-      } else {
-        this.ui.showBanner('Waiting for the room host to start the next match...', 'neutral');
       }
       return;
     }
@@ -365,9 +367,15 @@ export class Uno3DGame {
       isBot: seat !== 0,
       active: true,
     }));
+    // Solo running score: kept across games until someone reaches 500.
+    if (!this.soloScores || this.soloChampion) {
+      this.soloScores = [0, 0, 0, 0];
+      this.soloChampion = false;
+    }
     const host = new GameHost({
       rules: this.rules,
       players,
+      scores: this.soloScores,
       send: (seat, payload) => {
         if (seat !== 0 || this.localHost !== host) return;
         // Deliver asynchronously, like a network message.
@@ -446,6 +454,10 @@ export class Uno3DGame {
     } else {
       this.ui.hideUnoShoutButton();
     }
+
+    // Someone else is on one card without calling UNO: offer the Catch button.
+    const catchable = view.gameOver ? null : view.players.find((p) => p.catchable && p.seat !== this.localSeat);
+    this.ui.setCatchTarget?.(catchable ? { seat: catchable.seat, name: catchable.name } : null);
 
     if (view.gameOver) {
       const winEvent = events.find((e) => e.type === 'win');
@@ -641,28 +653,35 @@ export class Uno3DGame {
         const targetPos = new THREE.Vector3();
         const targetRot = new THREE.Euler();
         let targetScale = 1.08;
+        // Phones in portrait: smaller fan for your hand, opponents pulled in so they stay on screen.
+        const compact = window.innerWidth / window.innerHeight < 0.75;
+        const sideX = compact ? 2.35 : 3.45;
+        const farZ = compact ? -3.0 : -3.45;
 
         if (visualSlot === 0) {
-          const maxSpread = Math.min(0.86, 5.4 / Math.max(count, 1));
-          const arch = Math.abs(offset) * 0.052;
+          const maxSpread = compact
+            ? Math.min(0.62, 3.3 / Math.max(count, 1))
+            : Math.min(0.86, 5.4 / Math.max(count, 1));
+          const arch = Math.abs(offset) * (compact ? 0.04 : 0.058);
           const playable = isMyTurn && entry.color && this.canPlay(entry);
-          targetScale = count > 13 ? 1.08 : count > 9 ? 1.2 : 1.32;
+          targetScale = compact ? 1.02 : 1.32;
           targetPos.set(
             offset * maxSpread,
-            1.78 - arch + (playable ? 0.28 : 0),
-            4.55 + arch * 0.3 + i * 0.032 + (playable ? -0.18 : 0)
+            (compact ? 1.62 : 1.78) - arch + (playable ? 0.28 : 0),
+            (compact ? 4.35 : 4.55) + arch * 0.35 + i * 0.02 + (playable ? -0.18 : 0)
           );
-          targetRot.set(-0.62, 0, -offset * 0.052);
+          targetRot.set(-0.62, 0, -offset * (compact ? 0.045 : 0.058));
         } else {
-          const spread = Math.min(0.36, 2.4 / Math.max(count, 1));
+          if (compact) targetScale = 0.86;
+          const spread = compact ? Math.min(0.24, 1.8 / Math.max(count, 1)) : Math.min(0.36, 2.4 / Math.max(count, 1));
           if (visualSlot === 1) {
-            targetPos.set(-3.45, 0.92, -0.35 + offset * spread);
+            targetPos.set(-sideX, 0.92, -0.35 + offset * spread);
             targetRot.set(0, -Math.PI / 2, offset * 0.05);
           } else if (visualSlot === 2) {
-            targetPos.set(-offset * spread, 0.92, -3.45);
+            targetPos.set(-offset * spread, 0.92, farZ);
             targetRot.set(0, 0, offset * 0.05);
           } else {
-            targetPos.set(3.45, 0.92, -0.35 - offset * spread);
+            targetPos.set(sideX, 0.92, -0.35 - offset * spread);
             targetRot.set(0, Math.PI / 2, offset * 0.05);
           }
         }
@@ -796,6 +815,8 @@ export class Uno3DGame {
             this.fx(`${this.nameOf(e.seat).toUpperCase()} DRAWS +${e.count}!`, 1.45, 1.2);
           } else if (e.reason === 'roulette') {
             // shown by the 'roulette' event
+          } else if (e.reason === 'uno_penalty' && events.some((x) => x.type === 'caught')) {
+            // announced by the 'caught' event
           } else if (e.reason === 'uno_penalty') {
             sound.playPenaltyBoom();
             pushFeed(`${this.nameOf(e.seat)} missed UNO! (+${e.count})`, 'red');
@@ -829,6 +850,15 @@ export class Uno3DGame {
           pushFeed('0-Rule: All 3D hands rotated!', color);
           this.fx('0: ALL HANDS ROTATED!', 1.35, 0.6);
           break;
+        case 'caught': {
+          sound.playPenaltyBoom();
+          const victim = e.seat === this.localSeat ? 'You were' : `${this.nameOf(e.seat)} was`;
+          const by = e.by === this.localSeat ? 'you' : this.nameOf(e.by);
+          pushFeed(`🚨 ${victim} caught by ${by} without calling UNO!`, 'red');
+          this.reaction(e.seat, '🚨', 'CAUGHT!');
+          this.fx(e.seat === this.localSeat ? '🚨 CAUGHT! YOU FORGOT UNO!' : `🚨 ${this.nameOf(e.seat).toUpperCase()} CAUGHT!`, 1.5, 1.1, 'red');
+          break;
+        }
         case 'skip_all':
           pushFeed(`⊘⊘ ${e.seat === this.localSeat ? 'You' : this.nameOf(e.seat)} skipped everyone!`, color);
           this.fx(e.seat === this.localSeat ? '⊘⊘ EVERYONE SKIPPED! GO AGAIN!' : `⊘⊘ ${this.nameOf(e.seat).toUpperCase()} SKIPPED EVERYONE!`, 1.4, 0.9);
@@ -979,6 +1009,12 @@ export class Uno3DGame {
     this.sendAction({ type: 'play', cardId: card.id, color: colorKey });
   }
 
+  catchUno(targetSeat) {
+    if (!this.view || this.view.gameOver) return;
+    this.ui.setCatchTarget?.(null);
+    this.sendAction({ type: 'catch', target: targetSeat });
+  }
+
   shoutUnoHuman() {
     if (!this.view || this.view.gameOver) return;
     this.ui.hideUnoShoutButton();
@@ -1007,15 +1043,26 @@ export class Uno3DGame {
     this.arena.triggerShockwave(this.view.activeColor, 2.2);
     this.arena.cameraPunch(1.5);
     const winner = this.players[winnerSeat];
+    const scores = this.view.scores || [];
     const standings = this.players
-      .filter((p) => p.activeSeat && !p.isVacant)
+      .filter((p) => (p.activeSeat && !p.isVacant) || p.eliminated)
       .map((p) => ({
         id: p.id,
         name: p.id === this.localSeat ? `${p.rawName || p.name} (You)` : p.rawName || p.name,
         cardsLeft: p.count || 0,
         isWinner: p.id === winnerSeat,
+        eliminated: Boolean(p.eliminated),
+        total: scores[p.id] || 0,
       }))
-      .sort((a, b) => a.cardsLeft - b.cardsLeft);
+      .sort((a, b) => b.total - a.total || a.cardsLeft - b.cardsLeft);
+    const champion = this.view.champion;
+    if (!this.inRoom() && champion !== null && champion !== undefined) this.soloChampion = true;
+    const scoreInfo = {
+      target: this.view.scoreTarget || 500,
+      total: scores[winnerSeat] || 0,
+      champion: champion ?? null,
+      championName: champion !== null && champion !== undefined ? this.players[champion]?.rawName : null,
+    };
 
     this.ui.openVictoryModal(
       winner,
@@ -1024,7 +1071,8 @@ export class Uno3DGame {
       this.activeCampaignLevel,
       this.inRoom(),
       standings,
-      { ...this.matchStats }
+      { ...this.matchStats },
+      scoreInfo
     );
   }
 
